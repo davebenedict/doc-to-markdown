@@ -15,7 +15,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
-from tkinterdnd2 import DND_FILES, TkinterDnD
+from tkinterdnd2 import DND_FILES, Tk as DnDTk
 
 import converter as conv
 
@@ -98,7 +98,7 @@ class FileRow(ctk.CTkFrame):
 # Main application window
 # ---------------------------------------------------------------------------
 
-class App(TkinterDnD.Tk):
+class App(DnDTk):
     def __init__(self):
         super().__init__()
         self.title("Doc \u2192 Markdown Converter")

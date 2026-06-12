@@ -1,5 +1,5 @@
 customtkinter==5.2.2
-tkinterdnd2==0.3.0
+tkinterdnd2==0.4.2
 PyMuPDF==1.25.5
 pdf2image==1.17.0
 pytesseract==0.3.13
