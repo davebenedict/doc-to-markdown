@@ -370,7 +370,7 @@ class App(DnDTk):
         for p in paths:
             p = Path(p)
             if p.is_dir():
-                self._queue_folder(p)
+                self._confirm_and_queue_folder(p)
             else:
                 self._queue_conversion(p)
 
@@ -393,7 +393,7 @@ class App(DnDTk):
     def _browse_folder(self):
         folder = filedialog.askdirectory(title="Select folder to convert")
         if folder:
-            self._queue_folder(Path(folder))
+            self._confirm_and_queue_folder(Path(folder))
 
     def _browse_output(self):
         d = filedialog.askdirectory(title="Select output folder")
@@ -441,6 +441,20 @@ class App(DnDTk):
     # ------------------------------------------------------------------
     # Conversion pipeline
     # ------------------------------------------------------------------
+
+    def _confirm_and_queue_folder(self, folder: Path):
+        if self._output_dir is None:
+            confirmed = messagebox.askyesno(
+                "No output folder set",
+                f"Converted files will be written into the source folder:\n\n"
+                f"{folder}\n\n"
+                f"This may create many .md files alongside your originals.\n\n"
+                f"Set a separate output folder instead, or click Yes to continue.",
+                icon="warning",
+            )
+            if not confirmed:
+                return
+        self._queue_folder(folder)
 
     def _queue_folder(self, folder: Path):
         threading.Thread(target=self._run_folder, args=(folder,), daemon=True).start()
