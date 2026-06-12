@@ -7,6 +7,9 @@ Supported formats:
   .docx  - python-docx (heading styles, lists, tables)
   .doc   - unsupported (returns informative error)
   .html/.htm  - markdownify
+  .xlsx/.xls  - openpyxl/xlrd (each sheet as a markdown table)
+  .csv   - built-in csv module
+  .pptx  - python-pptx (each slide as a markdown section)
 """
 
 from __future__ import annotations
@@ -36,7 +39,11 @@ def _require(pkg_name: str, import_name: str | None = None):
 # Constants
 # ---------------------------------------------------------------------------
 
-SUPPORTED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".docx", ".html", ".htm"}
+SUPPORTED_EXTENSIONS = {
+    ".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp",
+    ".docx", ".doc", ".html", ".htm",
+    ".xlsx", ".xls", ".csv", ".pptx",
+}
 OCR_TEXT_THRESHOLD = 50  # characters per page below which we treat PDF as scanned
 
 
@@ -260,6 +267,115 @@ def _table_to_md(tbl) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Excel conversion (.xlsx, .xls)
+# ---------------------------------------------------------------------------
+
+def _convert_excel(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
+    ext = path.suffix.lower()
+    parts: list[str] = []
+
+    if ext == ".xlsx":
+        openpyxl = _require("openpyxl")
+        wb = openpyxl.load_workbook(str(path), data_only=True)
+        sheet_names = wb.sheetnames
+        for sheet_name in sheet_names:
+            if progress_cb:
+                progress_cb(f"Converting sheet '{sheet_name}'…")
+            ws = wb[sheet_name]
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                continue
+            parts.append(f"## {sheet_name}\n")
+            parts.append(_rows_to_md(rows))
+    else:
+        xlrd = _require("xlrd")
+        wb = xlrd.open_workbook(str(path))
+        for sheet in wb.sheets():
+            if progress_cb:
+                progress_cb(f"Converting sheet '{sheet.name}'…")
+            rows = [sheet.row_values(i) for i in range(sheet.nrows)]
+            if not rows:
+                continue
+            parts.append(f"## {sheet.name}\n")
+            parts.append(_rows_to_md(rows))
+
+    return "\n\n".join(parts)
+
+
+def _rows_to_md(rows: list) -> str:
+    if not rows:
+        return ""
+    lines: list[str] = []
+    for i, row in enumerate(rows):
+        cells = [str(cell) if cell is not None else "" for cell in row]
+        cells = [c.replace("|", "\\|").replace("\n", " ") for c in cells]
+        lines.append("| " + " | ".join(cells) + " |")
+        if i == 0:
+            lines.append("| " + " | ".join(["---"] * len(cells)) + " |")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# CSV conversion
+# ---------------------------------------------------------------------------
+
+def _convert_csv(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
+    import csv
+
+    if progress_cb:
+        progress_cb(f"Converting {path.name}…")
+
+    with path.open(encoding="utf-8", errors="replace", newline="") as f:
+        rows = list(csv.reader(f))
+
+    return _rows_to_md(rows)
+
+
+# ---------------------------------------------------------------------------
+# PowerPoint conversion (.pptx)
+# ---------------------------------------------------------------------------
+
+def _convert_pptx(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
+    pptx = _require("python-pptx", "pptx")
+    Presentation = pptx.Presentation
+
+    if progress_cb:
+        progress_cb(f"Parsing {path.name}…")
+
+    prs = Presentation(str(path))
+    parts: list[str] = []
+
+    for i, slide in enumerate(prs.slides):
+        slide_parts: list[str] = []
+        title_text = ""
+
+        for shape in slide.shapes:
+            if not shape.has_text_frame:
+                continue
+            text = shape.text_frame.text.strip()
+            if not text:
+                continue
+            if shape.shape_type == 13:  # Picture
+                continue
+            if hasattr(shape, "placeholder_format") and shape.placeholder_format is not None:
+                ph_idx = shape.placeholder_format.idx
+                if ph_idx == 0:  # Title placeholder
+                    title_text = text
+                    continue
+            slide_parts.append(text)
+
+        header = f"## Slide {i + 1}"
+        if title_text:
+            header += f": {title_text}"
+        parts.append(header)
+        if slide_parts:
+            parts.append("\n".join(slide_parts))
+        parts.append("")
+
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # HTML conversion
 # ---------------------------------------------------------------------------
 
@@ -324,6 +440,12 @@ def convert(
         md = _convert_docx(src, progress_cb)
     elif ext in {".html", ".htm"}:
         md = _convert_html(src, progress_cb)
+    elif ext in {".xlsx", ".xls"}:
+        md = _convert_excel(src, progress_cb)
+    elif ext == ".csv":
+        md = _convert_csv(src, progress_cb)
+    elif ext == ".pptx":
+        md = _convert_pptx(src, progress_cb)
     else:
         raise ValueError(f"No converter registered for '{ext}'")
 

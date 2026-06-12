@@ -37,9 +37,10 @@ FONT_SMALL = ("Segoe UI", 11)
 FONT_MONO = ("Consolas", 11)
 
 ACCEPTED_TYPES = [
-    ("Documents", "*.pdf *.docx *.html *.htm"),
+    ("Documents", "*.pdf *.docx *.html *.htm *.pptx"),
+    ("Spreadsheets", "*.xlsx *.xls *.csv"),
     ("Images", "*.jpg *.jpeg *.png *.tiff *.tif *.bmp"),
-    ("All supported", "*.pdf *.docx *.html *.htm *.jpg *.jpeg *.png *.tiff *.tif *.bmp"),
+    ("All supported", "*.pdf *.docx *.html *.htm *.pptx *.xlsx *.xls *.csv *.jpg *.jpeg *.png *.tiff *.tif *.bmp"),
     ("All files", "*.*"),
 ]
 
@@ -173,7 +174,7 @@ class App(DnDTk):
 
         self._drop_sub = ctk.CTkLabel(
             self._drop_frame,
-            text="PDF · DOCX · JPG · PNG · TIFF · HTML",
+            text="PDF · DOCX · PPTX · XLSX · CSV · JPG · PNG · HTML",
             font=FONT_SMALL,
             text_color="gray50",
         )
