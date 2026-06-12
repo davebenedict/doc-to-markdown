@@ -90,10 +90,22 @@ class FileRow(ctk.CTkFrame):
         open_btn.pack(side="right", padx=4, pady=6)
 
     def _open(self):
-        os.startfile(str(self.md_path))
+        import sys
+        if sys.platform == "win32":
+            os.startfile(str(self.md_path))
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(self.md_path)])
+        else:
+            subprocess.run(["xdg-open", str(self.md_path)])
 
     def _reveal(self):
-        subprocess.run(["explorer", "/select,", str(self.md_path)])
+        import sys
+        if sys.platform == "win32":
+            subprocess.run(["explorer", "/select,", str(self.md_path)])
+        elif sys.platform == "darwin":
+            subprocess.run(["open", "-R", str(self.md_path)])
+        else:
+            subprocess.run(["xdg-open", str(self.md_path.parent)])
 
 
 # ---------------------------------------------------------------------------

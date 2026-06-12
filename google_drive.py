@@ -48,13 +48,26 @@ def extract_file_id(url_or_id: str) -> tuple[str, str | None]:
     Extract (file_id, doc_type) from a Google Drive/Docs URL.
     doc_type is one of: 'document', 'spreadsheets', 'presentation', 'drawings', or None.
     """
+    # Folder URL — not exportable as a single file
+    if re.search(r"drive\.google\.com/drive/folders/", url_or_id):
+        raise ValueError(
+            "That URL is a Google Drive folder, not a file.\n\n"
+            "Open the folder in your browser, then open the individual document "
+            "you want to convert and copy its URL (it will contain /document/d/ or /file/d/)."
+        )
+
     # Google Docs/Sheets/Slides URL: /document/d/{id}, /spreadsheets/d/{id}, etc.
     m = re.search(r"google\.com/(document|spreadsheets|presentation|drawings)/d/([a-zA-Z0-9_-]{20,})", url_or_id)
     if m:
         return m.group(2), m.group(1)
 
-    # Standard Drive sharing URL: drive.google.com/file/d/{id}
-    m = re.search(r"/d/([a-zA-Z0-9_-]{20,})", url_or_id)
+    # Standard Drive file URL: drive.google.com/file/d/{id}
+    m = re.search(r"/file/d/([a-zA-Z0-9_-]{20,})", url_or_id)
+    if m:
+        return m.group(1), None
+
+    # Shorthand /d/{id} (older sharing links)
+    m = re.search(r"(?<!/folders)/d/([a-zA-Z0-9_-]{20,})", url_or_id)
     if m:
         return m.group(1), None
 
@@ -67,7 +80,11 @@ def extract_file_id(url_or_id: str) -> tuple[str, str | None]:
     if re.fullmatch(r"[a-zA-Z0-9_-]{20,}", url_or_id.strip()):
         return url_or_id.strip(), None
 
-    raise ValueError(f"Could not extract a Google Drive file ID from: {url_or_id!r}")
+    raise ValueError(
+        f"Could not extract a Google Drive file ID from the URL.\n\n"
+        f"Make sure you copy the URL of an individual file (Google Doc, Sheet, PDF, etc.), "
+        f"not a folder."
+    )
 
 
 def _snapshot_downloads(downloads: Path) -> set[Path]:
