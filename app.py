@@ -245,7 +245,7 @@ class App(DnDTk):
 
         gdrive_note = ctk.CTkLabel(
             self,
-            text="Requires credentials.json — see README for setup instructions.",
+            text="Uses your existing browser session — no login or setup required.",
             font=("Segoe UI", 10),
             text_color="gray45",
             anchor="w",
@@ -347,11 +347,10 @@ class App(DnDTk):
         threading.Thread(target=self._run_gdrive_conversion, args=(url,), daemon=True).start()
 
     def _run_gdrive_conversion(self, url: str):
-        self._set_status("Connecting to Google Drive…")
+        self._set_status("Opening export URL in browser…")
         self._drop_frame.configure(border_color="orange")
         try:
-            tmp_dir = Path(tempfile.gettempdir()) / "doc2md_gdrive"
-            downloaded = gdrive.download(url, dest_dir=tmp_dir, progress_cb=self._set_status)
+            downloaded = gdrive.download(url, dest_dir=self._output_dir, progress_cb=self._set_status)
             self._set_status(f"Downloaded — converting {downloaded.name}…")
             out_path = conv.convert(
                 downloaded,
@@ -360,9 +359,9 @@ class App(DnDTk):
             )
             self.after(0, self._add_file_row, out_path)
             self._set_status(f"Done — {out_path.name}")
-        except FileNotFoundError as exc:
-            self._set_status(f"Setup needed: {exc}", error=True)
-            messagebox.showerror("credentials.json missing", str(exc))
+        except TimeoutError as exc:
+            self._set_status("Timed out waiting for download.", error=True)
+            messagebox.showerror("Download timed out", str(exc))
         except Exception as exc:
             self._set_status(f"Error: {exc}", error=True)
             messagebox.showerror("Google Drive conversion failed", str(exc))

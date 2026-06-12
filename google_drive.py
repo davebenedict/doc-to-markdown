@@ -1,82 +1,81 @@
 """
-google_drive.py - Google Drive OAuth download helper.
+google_drive.py - Browser-based Google Drive export helper.
 
-Downloads a Google Doc/Sheet/Slide as HTML (or PDF for binary files)
-using the Drive export API with OAuth 2.0 credentials.
-
-Requires:
-  - credentials.json  (OAuth client secret from Google Cloud Console)
-  - token.json        (auto-created on first run via browser auth)
+Opens the Google Docs export URL in the user's default browser
+(using their existing Google session — no API keys or credentials needed),
+then watches the Downloads folder for the file to appear.
 """
 
 from __future__ import annotations
 
+import os
 import re
-import tempfile
+import time
+import webbrowser
 from pathlib import Path
 
-SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
-CREDENTIALS_FILE = Path(__file__).parent / "credentials.json"
-TOKEN_FILE = Path(__file__).parent / "token.json"
+# How long to wait for the browser download to complete (seconds)
+DOWNLOAD_TIMEOUT = 60
+POLL_INTERVAL = 0.5
 
-# Maps Google MIME types to export format + file extension
-_EXPORT_MAP = {
-    "application/vnd.google-apps.document":     ("text/html", ".html"),
-    "application/vnd.google-apps.spreadsheet":  ("text/csv", ".csv"),
-    "application/vnd.google-apps.presentation": ("text/html", ".html"),
-    "application/vnd.google-apps.drawing":      ("image/png", ".png"),
+# Export URL templates per doc type (detected from URL pattern)
+_EXPORT_URLS = {
+    "document":     "https://docs.google.com/document/d/{id}/export?format=html",
+    "spreadsheets": "https://docs.google.com/spreadsheets/d/{id}/export?format=csv",
+    "presentation": "https://docs.google.com/presentation/d/{id}/export/html",
+    "drawings":     "https://docs.google.com/drawings/d/{id}/export/png",
 }
 
-# Non-Google native files (regular Drive files) — download directly
-_DIRECT_MIME_EXT = {
-    "application/pdf":                                           ".pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
-    "text/html":                                                 ".html",
-    "text/plain":                                                ".txt",
+# Expected file extensions per doc type
+_EXPORT_EXT = {
+    "document":     ".html",
+    "spreadsheets": ".csv",
+    "presentation": ".html",
+    "drawings":     ".png",
 }
 
-
-def _get_creds():
-    """Return valid OAuth credentials, refreshing or re-authorizing as needed."""
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
-    from google.auth.transport.requests import Request
-
-    if not CREDENTIALS_FILE.exists():
-        raise FileNotFoundError(
-            f"credentials.json not found at {CREDENTIALS_FILE}\n"
-            "Download it from Google Cloud Console → APIs & Services → Credentials."
-        )
-
-    creds = None
-    if TOKEN_FILE.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
-
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
-            creds = flow.run_local_server(port=0)
-        TOKEN_FILE.write_text(creds.to_json())
-
-    return creds
+# Fallback: plain Drive file download
+_DRIVE_DOWNLOAD_URL = "https://drive.google.com/uc?export=download&id={id}"
 
 
-def extract_file_id(url_or_id: str) -> str:
-    """Extract a Drive file ID from a sharing URL or return the raw ID."""
-    # Standard sharing URL: /d/{id}/ or /d/{id}/edit
+def _get_downloads_folder() -> Path:
+    """Return the user's Downloads folder path."""
+    return Path.home() / "Downloads"
+
+
+def extract_file_id(url_or_id: str) -> tuple[str, str | None]:
+    """
+    Extract (file_id, doc_type) from a Google Drive/Docs URL.
+    doc_type is one of: 'document', 'spreadsheets', 'presentation', 'drawings', or None.
+    """
+    # Google Docs/Sheets/Slides URL: /document/d/{id}, /spreadsheets/d/{id}, etc.
+    m = re.search(r"google\.com/(document|spreadsheets|presentation|drawings)/d/([a-zA-Z0-9_-]{20,})", url_or_id)
+    if m:
+        return m.group(2), m.group(1)
+
+    # Standard Drive sharing URL: drive.google.com/file/d/{id}
     m = re.search(r"/d/([a-zA-Z0-9_-]{20,})", url_or_id)
     if m:
-        return m.group(1)
+        return m.group(1), None
+
     # open?id= style
     m = re.search(r"[?&]id=([a-zA-Z0-9_-]{20,})", url_or_id)
     if m:
-        return m.group(1)
-    # Assume raw ID if it looks like one
+        return m.group(1), None
+
+    # Raw ID
     if re.fullmatch(r"[a-zA-Z0-9_-]{20,}", url_or_id.strip()):
-        return url_or_id.strip()
+        return url_or_id.strip(), None
+
     raise ValueError(f"Could not extract a Google Drive file ID from: {url_or_id!r}")
+
+
+def _snapshot_downloads(downloads: Path) -> set[Path]:
+    """Return the current set of files in the Downloads folder."""
+    try:
+        return set(downloads.iterdir())
+    except Exception:
+        return set()
 
 
 def download(
@@ -85,63 +84,70 @@ def download(
     progress_cb=None,
 ) -> Path:
     """
-    Download a Google Drive file, exporting Google Docs formats as HTML.
+    Export a Google Drive document by opening the export URL in the browser.
 
-    Returns the path to the downloaded temp file.
+    The user's existing browser session handles authentication automatically.
+    Watches the Downloads folder for the new file, then moves it to dest_dir.
+
+    Returns the path to the downloaded file.
     """
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaIoBaseDownload
-    import io
+    file_id, doc_type = extract_file_id(url_or_id)
 
-    file_id = extract_file_id(url_or_id)
-
-    if progress_cb:
-        progress_cb("Authenticating with Google…")
-
-    creds = _get_creds()
-    service = build("drive", "v3", credentials=creds, cache_discovery=False)
-
-    if progress_cb:
-        progress_cb("Fetching file metadata…")
-
-    meta = service.files().get(fileId=file_id, fields="name,mimeType").execute()
-    name: str = meta["name"]
-    mime: str = meta["mimeType"]
-
-    out_dir = dest_dir or Path(tempfile.gettempdir())
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    if mime in _EXPORT_MAP:
-        export_mime, ext = _EXPORT_MAP[mime]
-        safe_name = re.sub(r'[\\/:*?"<>|]', "_", name)
-        dest = out_dir / (safe_name + ext)
-
-        if progress_cb:
-            progress_cb(f"Exporting '{name}' as {ext}…")
-
-        data = service.files().export(fileId=file_id, mimeType=export_mime).execute()
-        dest.write_bytes(data)
-
-    elif mime in _DIRECT_MIME_EXT:
-        ext = _DIRECT_MIME_EXT[mime]
-        safe_name = re.sub(r'[\\/:*?"<>|]', "_", name)
-        dest = out_dir / (safe_name + ext)
-
-        if progress_cb:
-            progress_cb(f"Downloading '{name}'…")
-
-        request = service.files().get_media(fileId=file_id)
-        buf = io.BytesIO()
-        dl = MediaIoBaseDownload(buf, request)
-        done = False
-        while not done:
-            _, done = dl.next_chunk()
-        dest.write_bytes(buf.getvalue())
-
+    if doc_type and doc_type in _EXPORT_URLS:
+        export_url = _EXPORT_URLS[doc_type].format(id=file_id)
+        expected_ext = _EXPORT_EXT[doc_type]
     else:
-        raise ValueError(
-            f"Unsupported Google Drive MIME type: {mime}\n"
-            f"File: {name}"
+        export_url = _DRIVE_DOWNLOAD_URL.format(id=file_id)
+        expected_ext = None
+
+    downloads = _get_downloads_folder()
+    before = _snapshot_downloads(downloads)
+
+    if progress_cb:
+        progress_cb("Opening export URL in browser — waiting for download…")
+
+    webbrowser.open(export_url)
+
+    # Poll for a new file to appear in Downloads
+    deadline = time.time() + DOWNLOAD_TIMEOUT
+    new_file: Path | None = None
+
+    while time.time() < deadline:
+        time.sleep(POLL_INTERVAL)
+        after = _snapshot_downloads(downloads)
+        new_files = after - before
+
+        # Filter out .crdownload / .tmp (still downloading)
+        completed = {
+            f for f in new_files
+            if f.suffix.lower() not in {".crdownload", ".tmp", ".part"}
+            and not f.name.startswith(".")
+        }
+
+        if completed:
+            # If multiple new files somehow appeared, pick the most recently modified
+            new_file = max(completed, key=lambda f: f.stat().st_mtime)
+            break
+
+        if progress_cb:
+            remaining = int(deadline - time.time())
+            progress_cb(f"Waiting for browser download… ({remaining}s remaining)")
+
+    if new_file is None:
+        raise TimeoutError(
+            f"No new file appeared in {downloads} within {DOWNLOAD_TIMEOUT}s.\n"
+            "Make sure you are logged into Google in your browser and the export URL opened correctly."
         )
 
-    return dest
+    if progress_cb:
+        progress_cb(f"Download detected: {new_file.name}")
+
+    # Move to dest_dir if specified
+    if dest_dir:
+        dest_dir = Path(dest_dir)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / new_file.name
+        new_file.replace(dest)
+        return dest
+
+    return new_file
