@@ -36,13 +36,29 @@ FONT_LABEL = ("Segoe UI", 12)
 FONT_SMALL = ("Segoe UI", 11)
 FONT_MONO = ("Consolas", 11)
 
-ACCEPTED_TYPES = [
-    ("Documents", "*.pdf *.docx *.html *.htm *.pptx"),
-    ("Spreadsheets", "*.xlsx *.xls *.csv"),
-    ("Images", "*.jpg *.jpeg *.png *.tiff *.tif *.bmp"),
-    ("All supported", "*.pdf *.docx *.html *.htm *.pptx *.xlsx *.xls *.csv *.jpg *.jpeg *.png *.tiff *.tif *.bmp"),
-    ("All files", "*.*"),
-]
+def _build_accepted_types():
+    _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp"}
+    _SHEET_EXTS = {".xlsx", ".xls", ".csv"}
+    _DOC_EXTS = {".pdf", ".docx", ".html", ".htm", ".pptx"}
+
+    exts = conv.SUPPORTED_EXTENSIONS - {".doc"}
+    all_glob = " ".join(f"*{e}" for e in sorted(exts))
+    doc_glob = " ".join(f"*{e}" for e in sorted(exts & _DOC_EXTS))
+    sheet_glob = " ".join(f"*{e}" for e in sorted(exts & _SHEET_EXTS))
+    img_glob = " ".join(f"*{e}" for e in sorted(exts & _IMAGE_EXTS))
+
+    types = []
+    if doc_glob:
+        types.append(("Documents", doc_glob))
+    if sheet_glob:
+        types.append(("Spreadsheets", sheet_glob))
+    if img_glob:
+        types.append(("Images", img_glob))
+    types.append(("All supported", all_glob))
+    types.append(("All files", "*.*"))
+    return types
+
+ACCEPTED_TYPES = _build_accepted_types()
 
 
 # ---------------------------------------------------------------------------
@@ -172,11 +188,17 @@ class App(DnDTk):
         )
         self._drop_label.pack()
 
+        supported_label = " · ".join(
+            ext.lstrip(".").upper()
+            for ext in sorted(conv.SUPPORTED_EXTENSIONS)
+            if ext != ".doc"
+        )
         self._drop_sub = ctk.CTkLabel(
             self._drop_frame,
-            text="PDF · DOCX · PPTX · XLSX · CSV · JPG · PNG · HTML",
+            text=supported_label,
             font=FONT_SMALL,
             text_color="gray50",
+            wraplength=480,
         )
         self._drop_sub.pack(pady=(2, 0))
 
