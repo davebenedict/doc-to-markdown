@@ -208,6 +208,32 @@ class App(DnDTk):
             widget.bind("<Enter>", lambda e: self._drop_frame.configure(fg_color=DROP_HOVER_BG))
             widget.bind("<Leave>", lambda e: self._drop_frame.configure(fg_color=DROP_NORMAL_BG))
 
+        # Folder row
+        folder_row = ctk.CTkFrame(self, fg_color="transparent")
+        folder_row.pack(fill="x", padx=24, pady=(6, 0))
+
+        folder_btn = ctk.CTkButton(
+            folder_row,
+            text="Convert Folder…",
+            width=130,
+            height=28,
+            font=FONT_SMALL,
+            fg_color="gray35",
+            hover_color="gray45",
+            command=self._browse_folder,
+        )
+        folder_btn.pack(side="left")
+
+        self._recurse_var = ctk.BooleanVar(value=False)
+        recurse_chk = ctk.CTkCheckBox(
+            folder_row,
+            text="Include subfolders",
+            variable=self._recurse_var,
+            font=FONT_SMALL,
+            height=28,
+        )
+        recurse_chk.pack(side="left", padx=(12, 0))
+
         # Output folder row
         out_row = ctk.CTkFrame(self, fg_color="transparent")
         out_row.pack(fill="x", padx=24, pady=(4, 0))
@@ -342,7 +368,11 @@ class App(DnDTk):
         # tkinterdnd2 returns space-separated paths; braces around paths with spaces
         paths = self._parse_dnd_paths(raw)
         for p in paths:
-            self._queue_conversion(Path(p))
+            p = Path(p)
+            if p.is_dir():
+                self._queue_folder(p)
+            else:
+                self._queue_conversion(p)
 
     @staticmethod
     def _parse_dnd_paths(raw: str) -> list[str]:
@@ -359,6 +389,11 @@ class App(DnDTk):
         )
         for p in paths:
             self._queue_conversion(Path(p))
+
+    def _browse_folder(self):
+        folder = filedialog.askdirectory(title="Select folder to convert")
+        if folder:
+            self._queue_folder(Path(folder))
 
     def _browse_output(self):
         d = filedialog.askdirectory(title="Select output folder")
@@ -407,6 +442,9 @@ class App(DnDTk):
     # Conversion pipeline
     # ------------------------------------------------------------------
 
+    def _queue_folder(self, folder: Path):
+        threading.Thread(target=self._run_folder, args=(folder,), daemon=True).start()
+
     def _queue_conversion(self, src: Path):
         ext = src.suffix.lower()
         if ext not in conv.SUPPORTED_EXTENSIONS:
@@ -417,6 +455,38 @@ class App(DnDTk):
             return
 
         threading.Thread(target=self._run_conversion, args=(src,), daemon=True).start()
+
+    def _run_folder(self, folder: Path):
+        recurse = self._recurse_var.get()
+        pattern = "**/*" if recurse else "*"
+        files = [
+            f for f in folder.glob(pattern)
+            if f.is_file() and f.suffix.lower() in conv.SUPPORTED_EXTENSIONS
+        ]
+
+        if not files:
+            self._set_status(f"No supported files found in {folder.name}", error=True)
+            return
+
+        self._set_status(f"Found {len(files)} file(s) in {folder.name} — converting…")
+        self._drop_frame.configure(border_color="orange")
+
+        ok, failed = 0, 0
+        for i, src in enumerate(files, 1):
+            self._set_status(f"[{i}/{len(files)}] {src.name}…")
+            try:
+                out_path = conv.convert(src, output_dir=self._output_dir, progress_cb=self._set_status)
+                self.after(0, self._add_file_row, out_path)
+                ok += 1
+            except Exception as exc:
+                self._set_status(f"Error on {src.name}: {exc}", error=True)
+                failed += 1
+
+        self.after(0, lambda: self._drop_frame.configure(border_color=ACCENT))
+        summary = f"Folder done — {ok} converted"
+        if failed:
+            summary += f", {failed} failed"
+        self._set_status(summary, error=bool(failed))
 
     def _run_conversion(self, src: Path):
         self._set_status(f"Converting {src.name}…")
