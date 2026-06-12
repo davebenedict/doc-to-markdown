@@ -5,7 +5,7 @@ Supported formats:
   .pdf   - text-layer (PyMuPDF) or scanned (pdf2image + Tesseract OCR)
   .jpg/.jpeg/.png/.tiff/.tif/.bmp  - Tesseract OCR
   .docx  - python-docx (heading styles, lists, tables)
-  .doc   - unsupported (returns informative error)
+  .doc   - docx2txt (text extraction, no formatting)
   .html/.htm  - markdownify
   .xlsx/.xls  - openpyxl/xlrd (each sheet as a markdown table)
   .csv   - built-in csv module
@@ -267,6 +267,20 @@ def _table_to_md(tbl) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Legacy .doc conversion
+# ---------------------------------------------------------------------------
+
+def _convert_doc(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
+    docx2txt = _require("docx2txt")
+
+    if progress_cb:
+        progress_cb(f"Extracting text from {path.name}…")
+
+    text = docx2txt.process(str(path))
+    return text.strip() if text else ""
+
+
+# ---------------------------------------------------------------------------
 # Excel conversion (.xlsx, .xls)
 # ---------------------------------------------------------------------------
 
@@ -420,12 +434,6 @@ def convert(
             f"Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
         )
 
-    if ext == ".doc":
-        raise ValueError(
-            "Legacy .doc files are not supported. "
-            "Please save the file as .docx in Word and try again."
-        )
-
     # Determine output path
     out_dir = Path(output_dir).resolve() if output_dir else src.parent
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -438,6 +446,8 @@ def convert(
         md = _convert_image(src, progress_cb)
     elif ext == ".docx":
         md = _convert_docx(src, progress_cb)
+    elif ext == ".doc":
+        md = _convert_doc(src, progress_cb)
     elif ext in {".html", ".htm"}:
         md = _convert_html(src, progress_cb)
     elif ext in {".xlsx", ".xls"}:
