@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 import threading
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -18,6 +19,7 @@ import customtkinter as ctk
 from tkinterdnd2 import DND_FILES, Tk as DnDTk
 
 import converter as conv
+import google_drive as gdrive
 
 # ---------------------------------------------------------------------------
 # App-level appearance defaults
@@ -211,9 +213,48 @@ class App(DnDTk):
         )
         clear_btn.pack(side="right", padx=(0, 4))
 
+        # Google Drive section
+        gdrive_sep = ctk.CTkFrame(self, height=1, fg_color="gray30")
+        gdrive_sep.pack(fill="x", padx=24, pady=(12, 8))
+
+        gdrive_header = ctk.CTkLabel(
+            self, text="Google Drive", font=("Segoe UI", 13, "bold"), anchor="w"
+        )
+        gdrive_header.pack(fill="x", padx=24, pady=(0, 4))
+
+        gdrive_row = ctk.CTkFrame(self, fg_color="transparent")
+        gdrive_row.pack(fill="x", padx=24, pady=(0, 4))
+
+        self._gdrive_entry = ctk.CTkEntry(
+            gdrive_row,
+            placeholder_text="Paste Google Drive sharing URL or file ID…",
+            font=FONT_SMALL,
+            height=32,
+        )
+        self._gdrive_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        gdrive_btn = ctk.CTkButton(
+            gdrive_row,
+            text="Convert",
+            width=80,
+            height=32,
+            font=FONT_SMALL,
+            command=self._on_gdrive_convert,
+        )
+        gdrive_btn.pack(side="right")
+
+        gdrive_note = ctk.CTkLabel(
+            self,
+            text="Requires credentials.json — see README for setup instructions.",
+            font=("Segoe UI", 10),
+            text_color="gray45",
+            anchor="w",
+        )
+        gdrive_note.pack(fill="x", padx=24, pady=(0, 4))
+
         # Separator
         sep = ctk.CTkFrame(self, height=1, fg_color="gray30")
-        sep.pack(fill="x", padx=24, pady=14)
+        sep.pack(fill="x", padx=24, pady=(8, 14))
 
         # Converted files section
         files_header = ctk.CTkLabel(self, text="Converted Files", font=("Segoe UI", 13, "bold"), anchor="w")
@@ -297,6 +338,36 @@ class App(DnDTk):
     def _clear_output_dir(self):
         self._output_dir = None
         self._out_dir_label.configure(text="Same folder as input", text_color="gray60")
+
+    def _on_gdrive_convert(self):
+        url = self._gdrive_entry.get().strip()
+        if not url:
+            self._set_status("Paste a Google Drive URL or file ID first.", error=True)
+            return
+        threading.Thread(target=self._run_gdrive_conversion, args=(url,), daemon=True).start()
+
+    def _run_gdrive_conversion(self, url: str):
+        self._set_status("Connecting to Google Drive…")
+        self._drop_frame.configure(border_color="orange")
+        try:
+            tmp_dir = Path(tempfile.gettempdir()) / "doc2md_gdrive"
+            downloaded = gdrive.download(url, dest_dir=tmp_dir, progress_cb=self._set_status)
+            self._set_status(f"Downloaded — converting {downloaded.name}…")
+            out_path = conv.convert(
+                downloaded,
+                output_dir=self._output_dir or downloaded.parent,
+                progress_cb=self._set_status,
+            )
+            self.after(0, self._add_file_row, out_path)
+            self._set_status(f"Done — {out_path.name}")
+        except FileNotFoundError as exc:
+            self._set_status(f"Setup needed: {exc}", error=True)
+            messagebox.showerror("credentials.json missing", str(exc))
+        except Exception as exc:
+            self._set_status(f"Error: {exc}", error=True)
+            messagebox.showerror("Google Drive conversion failed", str(exc))
+        finally:
+            self.after(0, lambda: self._drop_frame.configure(border_color=ACCENT))
 
     # ------------------------------------------------------------------
     # Conversion pipeline

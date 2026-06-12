@@ -24,6 +24,10 @@ Thumbs.db
 desktop.ini
 .DS_Store
 
+# Google OAuth credentials (never commit these)
+credentials.json
+token.json
+
 # Output markdown files (keep source, ignore generated output)
 # Uncomment if you don't want to commit converted .md files:
 # *.md
