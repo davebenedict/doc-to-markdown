@@ -141,6 +141,13 @@ def download(
             and not f.name.startswith(".")
         }
 
+        # Prefer files matching the expected extension to avoid picking up
+        # unrelated downloads that happen to finish during the poll window.
+        if completed and expected_ext:
+            matching = {f for f in completed if f.suffix.lower() == expected_ext}
+            if matching:
+                completed = matching
+
         if completed:
             # If multiple new files somehow appeared, pick the most recently modified
             new_file = max(completed, key=lambda f: f.stat().st_mtime)

@@ -9,7 +9,9 @@ Usage:
 from __future__ import annotations
 
 import os
+import re
 import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -41,7 +43,7 @@ def _build_accepted_types():
     _SHEET_EXTS = {".xlsx", ".xls", ".csv"}
     _DOC_EXTS = {".pdf", ".docx", ".html", ".htm", ".pptx"}
 
-    exts = conv.SUPPORTED_EXTENSIONS - {".doc"}
+    exts = conv.SUPPORTED_EXTENSIONS
     all_glob = " ".join(f"*{e}" for e in sorted(exts))
     doc_glob = " ".join(f"*{e}" for e in sorted(exts & _DOC_EXTS))
     sheet_glob = " ".join(f"*{e}" for e in sorted(exts & _SHEET_EXTS))
@@ -107,7 +109,6 @@ class FileRow(ctk.CTkFrame):
         open_btn.pack(side="right", padx=4, pady=6)
 
     def _open(self):
-        import sys
         if sys.platform == "win32":
             os.startfile(str(self.md_path))
         elif sys.platform == "darwin":
@@ -116,7 +117,6 @@ class FileRow(ctk.CTkFrame):
             subprocess.run(["xdg-open", str(self.md_path)])
 
     def _reveal(self):
-        import sys
         if sys.platform == "win32":
             subprocess.run(["explorer", "/select,", str(self.md_path)])
         elif sys.platform == "darwin":
@@ -142,6 +142,7 @@ class App(DnDTk):
 
         self._output_dir: Path | None = None
         self._busy = False
+        self._queue: list[Path] = []
 
         self._build_ui()
         self._register_dnd()
@@ -191,7 +192,6 @@ class App(DnDTk):
         supported_label = " · ".join(
             ext.lstrip(".").upper()
             for ext in sorted(conv.SUPPORTED_EXTENSIONS)
-            if ext != ".doc"
         )
         self._drop_sub = ctk.CTkLabel(
             self._drop_frame,
@@ -340,14 +340,14 @@ class App(DnDTk):
 
         # Status bar
         self._status_var = ctk.StringVar(value="Ready")
-        status_bar = ctk.CTkLabel(
+        self._status_label = ctk.CTkLabel(
             self,
             textvariable=self._status_var,
             font=FONT_SMALL,
             text_color="gray60",
             anchor="w",
         )
-        status_bar.pack(fill="x", padx=28, pady=(0, 14))
+        self._status_label.pack(fill="x", padx=28, pady=(0, 14))
 
     # ------------------------------------------------------------------
     # Drag-and-drop registration
@@ -367,16 +367,20 @@ class App(DnDTk):
         raw = event.data.strip()
         # tkinterdnd2 returns space-separated paths; braces around paths with spaces
         paths = self._parse_dnd_paths(raw)
+
+        files = []
         for p in paths:
             p = Path(p)
             if p.is_dir():
                 self._confirm_and_queue_folder(p)
             else:
-                self._queue_conversion(p)
+                files.append(p)
+
+        if files:
+            self._queue_batch(files)
 
     @staticmethod
     def _parse_dnd_paths(raw: str) -> list[str]:
-        import re
         # Paths wrapped in {} for paths with spaces
         braced = re.findall(r"\{([^}]+)\}", raw)
         remainder = re.sub(r"\{[^}]+\}", "", raw).split()
@@ -431,10 +435,10 @@ class App(DnDTk):
             self._set_status(f"Done — {out_path.name}")
         except TimeoutError as exc:
             self._set_status("Timed out waiting for download.", error=True)
-            messagebox.showerror("Download timed out", str(exc))
+            self.after(0, lambda: messagebox.showerror("Download timed out", str(exc)))
         except Exception as exc:
             self._set_status(f"Error: {exc}", error=True)
-            messagebox.showerror("Google Drive conversion failed", str(exc))
+            self.after(0, lambda: messagebox.showerror("Google Drive conversion failed", str(exc)))
         finally:
             self.after(0, lambda: self._drop_frame.configure(border_color=ACCENT))
 
@@ -468,7 +472,68 @@ class App(DnDTk):
             self._set_status(f"File not found: {src.name}", error=True)
             return
 
-        threading.Thread(target=self._run_conversion, args=(src,), daemon=True).start()
+        self._queue_batch([src])
+
+    def _queue_batch(self, files: list[Path]):
+        """Queue files for sequential conversion on a single background thread."""
+        valid = []
+        for src in files:
+            ext = src.suffix.lower()
+            if ext not in conv.SUPPORTED_EXTENSIONS:
+                self._set_status(f"Skipped: unsupported type '{ext}'", error=True)
+                continue
+            if not src.exists():
+                self._set_status(f"File not found: {src.name}", error=True)
+                continue
+            valid.append(src)
+
+        if not valid:
+            return
+
+        if self._busy:
+            self._queue.extend(valid)
+            self._set_status(f"Queued {len(valid)} file(s) — conversion in progress…")
+            return
+
+        self._busy = True
+        threading.Thread(target=self._run_batch, args=(valid,), daemon=True).start()
+
+    def _run_batch(self, files: list[Path]):
+        self._drop_frame.configure(border_color="orange")
+        ok, failed = 0, 0
+        total = len(files)
+
+        while files:
+            for i, src in enumerate(files, 1):
+                self._set_status(f"[{ok + failed + 1}/{total}] Converting {src.name}…" if total > 1 else f"Converting {src.name}…")
+                try:
+                    out_path = conv.convert(
+                        src,
+                        output_dir=self._output_dir,
+                        progress_cb=self._set_status,
+                    )
+                    self.after(0, self._add_file_row, out_path)
+                    ok += 1
+                except Exception as exc:
+                    self._set_status(f"Error on {src.name}: {exc}", error=True)
+                    failed += 1
+
+            # Drain any files queued while we were working
+            files = list(self._queue)
+            self._queue.clear()
+            total += len(files)
+
+        self._busy = False
+        self.after(0, lambda: self._drop_frame.configure(border_color=ACCENT))
+        if total == 1:
+            if ok:
+                self._set_status(f"Done — conversion complete")
+            # error status already set above
+        else:
+            summary = f"Done — {ok} converted"
+            if failed:
+                summary += f", {failed} failed"
+            self._set_status(summary, error=bool(failed))
 
     def _run_folder(self, folder: Path):
         recurse = self._recurse_var.get()
@@ -502,23 +567,6 @@ class App(DnDTk):
             summary += f", {failed} failed"
         self._set_status(summary, error=bool(failed))
 
-    def _run_conversion(self, src: Path):
-        self._set_status(f"Converting {src.name}…")
-        self._drop_frame.configure(border_color="orange")
-
-        try:
-            out_path = conv.convert(
-                src,
-                output_dir=self._output_dir,
-                progress_cb=self._set_status,
-            )
-            self.after(0, self._add_file_row, out_path)
-            self._set_status(f"Done — {out_path.name}")
-        except Exception as exc:
-            self._set_status(f"Error: {exc}", error=True)
-            messagebox.showerror("Conversion failed", str(exc))
-        finally:
-            self.after(0, lambda: self._drop_frame.configure(border_color=ACCENT))
 
     # ------------------------------------------------------------------
     # UI update helpers (always called on main thread via after())
@@ -538,10 +586,7 @@ class App(DnDTk):
     def _set_status(self, msg: str, error: bool = False):
         color = "#e06c75" if error else "gray60"
         self.after(0, lambda: self._status_var.set(msg))
-        self.after(0, lambda: self._find_status_label_color(color))
-
-    def _find_status_label_color(self, color: str):
-        self._status_var.set(self._status_var.get())
+        self.after(0, lambda: self._status_label.configure(text_color=color))
 
 
 # ---------------------------------------------------------------------------

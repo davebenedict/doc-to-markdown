@@ -5,7 +5,6 @@ Supported formats:
   .pdf   - text-layer (PyMuPDF) or scanned (pdf2image + Tesseract OCR)
   .jpg/.jpeg/.png/.tiff/.tif/.bmp  - Tesseract OCR
   .docx  - python-docx (heading styles, lists, tables)
-  .doc   - docx2txt (text extraction, no formatting)
   .html/.htm  - markdownify
   .xlsx/.xls  - openpyxl/xlrd (each sheet as a markdown table)
   .csv   - built-in csv module
@@ -41,7 +40,7 @@ def _require(pkg_name: str, import_name: str | None = None):
 
 SUPPORTED_EXTENSIONS = {
     ".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp",
-    ".docx", ".doc", ".html", ".htm",
+    ".docx", ".html", ".htm",
     ".xlsx", ".xls", ".csv", ".pptx",
 }
 OCR_TEXT_THRESHOLD = 50  # characters per page below which we treat PDF as scanned
@@ -124,7 +123,7 @@ def _pdf_text_layer(doc, total_pages: int, progress_cb) -> str:
         if page_lines:
             parts.append("\n".join(page_lines))
             if total_pages > 1:
-                parts.append(f"\n\n---\n<!-- Page {page_num + 2} -->\n")
+                parts.append(f"\n\n---\n<!-- Page {page_num + 1} -->\n")
 
     doc.close()
     return "\n".join(parts)
@@ -143,7 +142,7 @@ def _pdf_ocr(path: Path, total_pages: int, progress_cb) -> str:
         text = pytesseract.image_to_string(img)
         parts.append(text.strip())
         if len(images) > 1:
-            parts.append(f"\n\n---\n<!-- Page {i + 2} -->\n")
+            parts.append(f"\n\n---\n<!-- Page {i + 1} -->\n")
 
     return "\n".join(parts)
 
@@ -221,7 +220,6 @@ def _convert_docx(path: Path, progress_cb: Callable[[str], None] | None = None) 
 
 
 def _find_paragraph(doc, element):
-    from docx.oxml.ns import qn
     from docx.text.paragraph import Paragraph
     try:
         return Paragraph(element, doc)
@@ -265,19 +263,6 @@ def _table_to_md(tbl) -> str:
             lines.append("| " + " | ".join(["---"] * len(cells)) + " |")
     return "\n".join(lines)
 
-
-# ---------------------------------------------------------------------------
-# Legacy .doc conversion
-# ---------------------------------------------------------------------------
-
-def _convert_doc(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
-    docx2txt = _require("docx2txt")
-
-    if progress_cb:
-        progress_cb(f"Extracting text from {path.name}…")
-
-    text = docx2txt.process(str(path))
-    return text.strip() if text else ""
 
 
 # ---------------------------------------------------------------------------
@@ -439,6 +424,12 @@ def convert(
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / (src.stem + ".md")
 
+    # Avoid silently overwriting existing files
+    counter = 1
+    while out_path.exists():
+        out_path = out_dir / f"{src.stem}_{counter}.md"
+        counter += 1
+
     # Route to converter
     if ext == ".pdf":
         md = _convert_pdf(src, progress_cb)
@@ -446,8 +437,6 @@ def convert(
         md = _convert_image(src, progress_cb)
     elif ext == ".docx":
         md = _convert_docx(src, progress_cb)
-    elif ext == ".doc":
-        md = _convert_doc(src, progress_cb)
     elif ext in {".html", ".htm"}:
         md = _convert_html(src, progress_cb)
     elif ext in {".xlsx", ".xls"}:

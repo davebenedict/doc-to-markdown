@@ -13,7 +13,6 @@ A native Windows desktop app that converts scanned PDFs, native PDFs, images, Wo
 | `.jpg` `.jpeg` `.png` `.tiff` `.tif` `.bmp` | Tesseract OCR |
 | `.docx` | python-docx; preserves heading styles, lists, tables |
 | `.html` `.htm` | markdownify (Google Docs export-ready) |
-| `.doc` | **Not supported** — open in Word and save as `.docx` first |
 
 ---
 
@@ -105,8 +104,9 @@ python app.py
 
 ```
 E:\Source\doc2md\
-  app.py          — Desktop UI (CustomTkinter + tkinterdnd2)
-  converter.py    — Conversion logic (format routing)
+  app.py            — Desktop UI (CustomTkinter + tkinterdnd2)
+  converter.py      — Conversion logic (format routing)
+  google_drive.py   — Browser-based Google Drive export helper
   requirements.txt
   README.md
 ```

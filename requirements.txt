@@ -9,7 +9,3 @@ markdownify==0.13.1
 openpyxl==3.1.5
 xlrd==2.0.1
 python-pptx==1.0.2
-docx2txt==0.8
-google-auth==2.29.0
-google-auth-oauthlib==1.2.0
-google-api-python-client==2.131.0

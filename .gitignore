@@ -18,6 +18,7 @@ build/
 .idea/
 *.suo
 *.user
+*.code-workspace
 
 # OS
 Thumbs.db
