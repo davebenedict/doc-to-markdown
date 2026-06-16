@@ -364,6 +364,7 @@ class App(DnDTk):
     # ------------------------------------------------------------------
 
     def _on_drop(self, event):
+        self._drop_frame.configure(fg_color=DROP_NORMAL_BG)
         raw = event.data.strip()
         # tkinterdnd2 returns space-separated paths; braces around paths with spaces
         paths = self._parse_dnd_paths(raw)
@@ -499,41 +500,42 @@ class App(DnDTk):
         threading.Thread(target=self._run_batch, args=(valid,), daemon=True).start()
 
     def _run_batch(self, files: list[Path]):
-        self._drop_frame.configure(border_color="orange")
         ok, failed = 0, 0
         total = len(files)
+        try:
+            self._drop_frame.configure(border_color="orange")
 
-        while files:
-            for i, src in enumerate(files, 1):
-                self._set_status(f"[{ok + failed + 1}/{total}] Converting {src.name}…" if total > 1 else f"Converting {src.name}…")
-                try:
-                    out_path = conv.convert(
-                        src,
-                        output_dir=self._output_dir,
-                        progress_cb=self._set_status,
-                    )
-                    self.after(0, self._add_file_row, out_path)
-                    ok += 1
-                except Exception as exc:
-                    self._set_status(f"Error on {src.name}: {exc}", error=True)
-                    failed += 1
+            while files:
+                for i, src in enumerate(files, 1):
+                    self._set_status(f"[{ok + failed + 1}/{total}] Converting {src.name}…" if total > 1 else f"Converting {src.name}…")
+                    try:
+                        out_path = conv.convert(
+                            src,
+                            output_dir=self._output_dir,
+                            progress_cb=self._set_status,
+                        )
+                        self.after(0, self._add_file_row, out_path)
+                        ok += 1
+                    except Exception as exc:
+                        self._set_status(f"Error on {src.name}: {exc}", error=True)
+                        failed += 1
 
-            # Drain any files queued while we were working
-            files = list(self._queue)
-            self._queue.clear()
-            total += len(files)
+                # Drain any files queued while we were working
+                files = list(self._queue)
+                self._queue.clear()
+                total += len(files)
 
-        self._busy = False
-        self.after(0, lambda: self._drop_frame.configure(border_color=ACCENT))
-        if total == 1:
-            if ok:
-                self._set_status(f"Done — conversion complete")
-            # error status already set above
-        else:
-            summary = f"Done — {ok} converted"
-            if failed:
-                summary += f", {failed} failed"
-            self._set_status(summary, error=bool(failed))
+            if total == 1:
+                if ok:
+                    self._set_status("Done — conversion complete")
+            else:
+                summary = f"Done — {ok} converted"
+                if failed:
+                    summary += f", {failed} failed"
+                self._set_status(summary, error=bool(failed))
+        finally:
+            self._busy = False
+            self.after(0, lambda: self._drop_frame.configure(border_color=ACCENT))
 
     def _run_folder(self, folder: Path):
         recurse = self._recurse_var.get()
