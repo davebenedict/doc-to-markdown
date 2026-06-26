@@ -249,11 +249,11 @@ class App(DnDTk):
         self._file_rows: list[FileRow] = []
         self._use_tiktoken_var = ctk.BooleanVar(value=conv.TIKTOKEN_AVAILABLE)
 
-        # Load remembered output directory if it exists
-        self._load_config()
-
         self._build_ui()
         self._register_dnd()
+
+        # Load remembered output directory after UI is built
+        self._load_config()
 
         # Set minimum width to ensure FileRow buttons fit on screen
         # Set minimum height to ensure status bar is visible
