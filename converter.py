@@ -475,6 +475,9 @@ def convert(
     out_path.write_text(md, encoding="utf-8")
 
     if progress_cb:
-        progress_cb(f"Done — {out_path.name}")
+        if not md.strip():
+            progress_cb(f"Warning — {out_path.name} is empty (no extractable text found)")
+        else:
+            progress_cb(f"Done — {out_path.name}")
 
     return out_path

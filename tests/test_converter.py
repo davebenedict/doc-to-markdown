@@ -276,6 +276,15 @@ class TestTokenStats:
         stats = conv.token_stats(src, out)
         assert stats["savings_pct"] is None
 
+    def test_empty_output_zero_tokens(self, tmp_path):
+        src = tmp_path / "src.bin"
+        src.write_bytes(b"x" * 400)
+        out = tmp_path / "out.md"
+        out.write_text("", encoding="utf-8")    # empty output
+        stats = conv.token_stats(src, out)
+        assert stats["out_tokens"] == 0
+        assert stats["savings_pct"] == 100
+
     def test_keys_present(self, tmp_path):
         src = tmp_path / "f.bin"
         src.write_bytes(b"x" * 100)

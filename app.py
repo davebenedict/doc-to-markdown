@@ -100,8 +100,13 @@ class FileRow(ctk.CTkFrame):
 
         if token_stats:
             pct = token_stats.get("savings_pct")
+            out_tokens = token_stats.get("out_tokens", 1)
             if pct is not None:
-                if pct > 0:
+                if out_tokens == 0:
+                    badge_text = "⚠ empty output"
+                    badge_color = "#6b4a00"
+                    text_color = "#f0a500"
+                elif pct > 0:
                     badge_text = f"↓{pct}% tokens"
                     badge_color = "#2d6a2d"
                     text_color = "#7ec87e"
