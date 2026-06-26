@@ -181,6 +181,7 @@ class App(DnDTk):
         self._output_dir: Path | None = None
         self._busy = False
         self._queue: list[Path] = []
+        self._skipped_files: list[str] = []
 
         self._build_ui()
         self._register_dnd()
@@ -386,6 +387,7 @@ class App(DnDTk):
             anchor="w",
         )
         self._status_label.pack(fill="x", padx=28, pady=(0, 14))
+        self._status_label.bind("<Button-1>", lambda e: self._on_status_click())
 
     # ------------------------------------------------------------------
     # Drag-and-drop registration
@@ -517,24 +519,25 @@ class App(DnDTk):
     def _queue_batch(self, files: list[Path]):
         """Queue files for sequential conversion on a single background thread."""
         valid = []
-        md_skipped = 0
+        skipped: list[str] = []
         for src in files:
             ext = src.suffix.lower()
             if ext == ".md":
-                md_skipped += 1
+                skipped.append(f"{src.name}  (already Markdown)")
                 continue
             if ext not in conv.SUPPORTED_EXTENSIONS:
-                self._set_status(f"Skipped: unsupported type '{ext}'", error=True)
+                skipped.append(f"{src.name}  (unsupported type '{ext}')")
                 continue
             if not src.exists():
                 self._set_status(f"File not found: {src.name}", error=True)
                 continue
             valid.append(src)
 
-        if md_skipped:
-            noun = "file" if md_skipped == 1 else "files"
+        if skipped:
+            self._skipped_files = skipped
+            noun = "file" if len(skipped) == 1 else "files"
             self._set_status(
-                f"Skipped {md_skipped} {noun} already in Markdown format.",
+                f"Skipped {len(skipped)} {noun} — click for details.",
                 error=True,
             )
 
@@ -547,9 +550,9 @@ class App(DnDTk):
             return
 
         self._busy = True
-        threading.Thread(target=self._run_batch, args=(valid,), daemon=True).start()
+        threading.Thread(target=self._run_batch, args=(valid, skipped), daemon=True).start()
 
-    def _run_batch(self, files: list[Path]):
+    def _run_batch(self, files: list[Path], skipped: list[str] | None = None):
         ok, failed = 0, 0
         total = len(files)
         try:
@@ -576,14 +579,17 @@ class App(DnDTk):
                 self._queue.clear()
                 total += len(files)
 
-            if total == 1:
+            n_skipped = len(skipped) if skipped else 0
+            if total == 1 and not n_skipped:
                 if ok:
                     self._set_status("Done — conversion complete")
             else:
                 summary = f"Done — {ok} converted"
                 if failed:
                     summary += f", {failed} failed"
-                self._set_status(summary, error=bool(failed))
+                if n_skipped:
+                    summary += f", {n_skipped} skipped — click for details."
+                self._set_status(summary, error=bool(failed or n_skipped))
         finally:
             self._busy = False
             self.after(0, lambda: self._drop_frame.configure(border_color=ACCENT))
@@ -593,17 +599,24 @@ class App(DnDTk):
         pattern = "**/*" if recurse else "*"
         all_files = [f for f in folder.glob(pattern) if f.is_file()]
         files = [f for f in all_files if f.suffix.lower() in conv.SUPPORTED_EXTENSIONS]
-        md_skipped = sum(1 for f in all_files if f.suffix.lower() == ".md")
 
-        if md_skipped:
-            noun = "file" if md_skipped == 1 else "files"
-            self._set_status(
-                f"Skipped {md_skipped} {noun} already in Markdown format.",
-                error=True,
-            )
+        skipped: list[str] = []
+        for f in all_files:
+            ext = f.suffix.lower()
+            if ext == ".md":
+                skipped.append(f"{f.name}  (already Markdown)")
+            elif ext not in conv.SUPPORTED_EXTENSIONS:
+                skipped.append(f"{f.name}  (unsupported type '{ext}')")
+
+        if skipped:
+            self._skipped_files = skipped
 
         if not files:
-            self._set_status(f"No supported files found in {folder.name}", error=True)
+            noun = "file" if len(skipped) == 1 else "files"
+            msg = f"No supported files found in {folder.name}"
+            if skipped:
+                msg += f" — {len(skipped)} {noun} skipped, click for details."
+            self._set_status(msg, error=True)
             return
 
         self._set_status(f"Found {len(files)} file(s) in {folder.name} — converting…")
@@ -625,7 +638,9 @@ class App(DnDTk):
         summary = f"Folder done — {ok} converted"
         if failed:
             summary += f", {failed} failed"
-        self._set_status(summary, error=bool(failed))
+        if skipped:
+            summary += f", {len(skipped)} skipped — click for details."
+        self._set_status(summary, error=bool(failed or skipped))
 
 
     # ------------------------------------------------------------------
@@ -642,6 +657,15 @@ class App(DnDTk):
 
         row = FileRow(self._file_list_frame, md_path, token_stats=token_stats, src_ext=src_ext)
         row.pack(fill="x", pady=(0, 4))
+
+    def _on_status_click(self):
+        if not self._skipped_files:
+            return
+        detail = "\n".join(f"  • {f}" for f in self._skipped_files)
+        messagebox.showinfo(
+            f"Skipped files ({len(self._skipped_files)})",
+            detail,
+        )
 
     def _set_status(self, msg: str, error: bool = False):
         color = "#e06c75" if error else "gray60"
