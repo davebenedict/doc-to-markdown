@@ -247,6 +247,9 @@ class App(DnDTk):
         self._build_ui()
         self._register_dnd()
 
+        # Set minimum width to ensure FileRow buttons fit on screen
+        self.minsize(650, 500)
+
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
