@@ -722,12 +722,12 @@ def convert(
     # Determine output path
     out_dir = Path(output_dir).resolve() if output_dir else src.parent
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / (src.stem + ".md")
+    out_path = out_dir / (src.name + ".md")
 
     # Avoid silently overwriting existing files
     counter = 1
     while out_path.exists():
-        out_path = out_dir / f"{src.stem}_{counter}.md"
+        out_path = out_dir / f"{src.name}_{counter}.md"
         counter += 1
 
     # Route to converter
