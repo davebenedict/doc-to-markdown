@@ -403,25 +403,36 @@ except Exception:
         return len(text) // 4
 
 
-def token_stats(src_text: str, out: Path) -> dict:
+def token_stats(src_text: str, out: Path, src: Path | None = None) -> dict:
     """
-    Return token counts for the raw source text and the output markdown.
+    Return token counts for the source document and the output markdown.
 
-    Uses tiktoken cl100k_base when available (exact counts compatible with
-    GPT-4 / most embedding models), otherwise falls back to chars÷4.
+    When tiktoken is available (cl100k_base), both sides are counted from
+    their text content — exact counts compatible with GPT-4 / most RAGs.
+
+    When tiktoken is NOT available, the source side falls back to
+    file bytes÷4 (requires *src* path) so there is a meaningful size
+    difference to compare against; the output side uses chars÷4.
 
     Parameters
     ----------
     src_text : the plain text extracted from the source document
     out      : path to the generated .md file
+    src      : path to the original source file (used for fallback only)
 
     Returns a dict with keys: src_tokens, out_tokens, savings_pct, method.
     savings_pct is None when src_tokens is 0.
     """
-    src_tokens = _count_tokens(src_text)
-    out_tokens = _count_tokens(out.read_text(encoding="utf-8", errors="replace"))
+    out_text = out.read_text(encoding="utf-8", errors="replace")
+    if _enc is not None:
+        src_tokens = _count_tokens(src_text)
+        out_tokens = _count_tokens(out_text)
+        method = "tiktoken cl100k_base"
+    else:
+        src_tokens = (src.stat().st_size // 4) if src is not None else (len(src_text) // 4)
+        out_tokens = len(out_text) // 4
+        method = "file bytes÷4" if src is not None else "chars÷4"
     savings_pct = round((1 - out_tokens / src_tokens) * 100) if src_tokens else None
-    method = "tiktoken cl100k_base" if _enc is not None else "chars÷4"
     return {"src_tokens": src_tokens, "out_tokens": out_tokens, "savings_pct": savings_pct, "method": method}
 
 

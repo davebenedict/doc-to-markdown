@@ -478,7 +478,7 @@ class App(DnDTk):
                 progress_cb=self._set_status,
                 return_text=True,
             )
-            stats = conv.token_stats(src_text, out_path)
+            stats = conv.token_stats(src_text, out_path, src=downloaded)
             self.after(0, self._add_file_row, out_path, stats, downloaded.suffix.lower())
             self._set_status(f"Done — {out_path.name}")
         except TimeoutError as exc:
@@ -575,7 +575,7 @@ class App(DnDTk):
                             progress_cb=self._set_status,
                             return_text=True,
                         )
-                        stats = conv.token_stats(src_text, out_path)
+                        stats = conv.token_stats(src_text, out_path, src=src)
                         self.after(0, self._add_file_row, out_path, stats, src.suffix.lower())
                         ok += 1
                     except Exception as exc:
@@ -640,7 +640,7 @@ class App(DnDTk):
             self._set_status(f"[{i}/{len(files)}] {src.name}…")
             try:
                 out_path, src_text = conv.convert(src, output_dir=self._output_dir, progress_cb=self._set_status, return_text=True)
-                stats = conv.token_stats(src_text, out_path)
+                stats = conv.token_stats(src_text, out_path, src=src)
                 self.after(0, self._add_file_row, out_path, stats, src.suffix.lower())
                 ok += 1
             except Exception as exc:
