@@ -2,13 +2,18 @@
 converter.py - Document-to-Markdown conversion logic.
 
 Supported formats:
-  .pdf   - text-layer (PyMuPDF) or scanned (pdf2image + Tesseract OCR)
+  .pdf              - text-layer (PyMuPDF) or scanned (pdf2image + Tesseract OCR)
   .jpg/.jpeg/.png/.tiff/.tif/.bmp  - Tesseract OCR
-  .docx  - python-docx (heading styles, lists, tables)
-  .html/.htm  - markdownify
-  .xlsx/.xls  - openpyxl/xlrd (each sheet as a markdown table)
-  .csv   - built-in csv module
-  .pptx  - python-pptx (each slide as a markdown section)
+  .docx             - python-docx (heading styles, lists, tables)
+  .html/.htm        - markdownify
+  .xlsx/.xls        - openpyxl/xlrd (each sheet as a markdown table)
+  .csv              - built-in csv module
+  .pptx             - python-pptx (each slide as a markdown section)
+  .epub             - ebooklib + markdownify (chapters as sections)
+  .rtf              - striprtf (plain text extraction)
+  .xml              - stdlib ElementTree (tags stripped, text preserved)
+  .json             - stdlib json (pretty-printed as fenced code block)
+  .odt              - odfpy (paragraphs and headings)
 """
 
 from __future__ import annotations
@@ -42,6 +47,7 @@ SUPPORTED_EXTENSIONS = {
     ".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp",
     ".docx", ".html", ".htm",
     ".xlsx", ".xls", ".csv", ".pptx",
+    ".epub", ".rtf", ".xml", ".json", ".odt",
 }
 OCR_TEXT_THRESHOLD = 50  # characters per page below which we treat PDF as scanned
 
@@ -388,6 +394,120 @@ def _convert_html(path: Path, progress_cb: Callable[[str], None] | None = None) 
     return markdownify.markdownify(html, heading_style="ATX").strip()
 
 
+def _convert_epub(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
+    ebooklib = _require("ebooklib")
+    markdownify = _require("markdownify")
+    epub = ebooklib.epub
+
+    if progress_cb:
+        progress_cb(f"Converting EPUB {path.name}\u2026")
+
+    book = epub.read_epub(str(path), options={"ignore_ncx": True})
+    parts: list[str] = []
+    for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+        html = item.get_content().decode("utf-8", errors="replace")
+        md = markdownify.markdownify(html, heading_style="ATX").strip()
+        if md:
+            parts.append(md)
+    return "\n\n".join(parts)
+
+
+def _convert_rtf(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
+    _require("striprtf", import_name="striprtf.striprtf")
+    from striprtf.striprtf import rtf_to_text
+
+    if progress_cb:
+        progress_cb(f"Converting RTF {path.name}\u2026")
+
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    text = rtf_to_text(raw)
+    lines = [line.rstrip() for line in text.splitlines()]
+    return "\n".join(lines).strip()
+
+
+def _convert_xml(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
+    import xml.etree.ElementTree as ET
+
+    if progress_cb:
+        progress_cb(f"Converting XML {path.name}\u2026")
+
+    try:
+        tree = ET.parse(str(path))
+        root = tree.getroot()
+    except ET.ParseError as exc:
+        raise ValueError(f"Invalid XML: {exc}")
+
+    lines: list[str] = []
+
+    def _walk(node: ET.Element, depth: int):
+        tag = node.tag.split("}")[-1] if "}" in node.tag else node.tag
+        text = (node.text or "").strip()
+        prefix = "#" * min(depth + 1, 6)
+        if depth == 0 or text or list(node):
+            lines.append(f"{prefix} {tag}")
+        if text:
+            lines.append(text)
+        for child in node:
+            _walk(child, depth + 1)
+        tail = (node.tail or "").strip()
+        if tail:
+            lines.append(tail)
+
+    _walk(root, 0)
+    return "\n\n".join(line for line in lines if line)
+
+
+def _convert_json(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
+    import json
+
+    if progress_cb:
+        progress_cb(f"Converting JSON {path.name}\u2026")
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON: {exc}")
+
+    pretty = json.dumps(data, indent=2, ensure_ascii=False)
+    return f"```json\n{pretty}\n```"
+
+
+def _convert_odt(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
+    _require("odf", import_name="odf")
+    from odf.opendocument import load as odf_load
+
+    if progress_cb:
+        progress_cb(f"Converting ODT {path.name}\u2026")
+
+    doc = odf_load(str(path))
+    lines: list[str] = []
+
+    def _get_text(node) -> str:
+        parts = []
+        if node.nodeType == node.TEXT_NODE:
+            parts.append(node.data)
+        for child in node.childNodes:
+            parts.append(_get_text(child))
+        return "".join(parts)
+
+    for el in doc.text.childNodes:
+        tag = el.__class__.__name__
+        text = _get_text(el).strip()
+        if not text:
+            continue
+        if tag == "H":
+            try:
+                level = int(el.getAttribute("text:outline-level") or 1)
+            except (ValueError, TypeError):
+                level = 1
+            prefix = "#" * min(level, 6)
+            lines.append(f"{prefix} {text}")
+        else:
+            lines.append(text)
+
+    return "\n\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Token estimation
 # ---------------------------------------------------------------------------
@@ -522,6 +642,16 @@ def convert(
         md = _convert_csv(src, progress_cb)
     elif ext == ".pptx":
         md = _convert_pptx(src, progress_cb)
+    elif ext == ".epub":
+        md = _convert_epub(src, progress_cb)
+    elif ext == ".rtf":
+        md = _convert_rtf(src, progress_cb)
+    elif ext == ".xml":
+        md = _convert_xml(src, progress_cb)
+    elif ext == ".json":
+        md = _convert_json(src, progress_cb)
+    elif ext == ".odt":
+        md = _convert_odt(src, progress_cb)
     else:
         raise ValueError(f"No converter registered for '{ext}'")
 
