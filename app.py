@@ -814,6 +814,9 @@ class App(DnDTk):
         try:
             self._drop_frame.configure(border_color="orange")
 
+            # Get output directory (with datetime subfolder if enabled) once for all files
+            output_dir = self._get_output_dir_with_subfolder()
+
             while files:
                 for i, src in enumerate(files, 1):
                     processed += 1
@@ -821,7 +824,7 @@ class App(DnDTk):
                     try:
                         out_path, src_text = conv.convert(
                             src,
-                            output_dir=self._get_output_dir_with_subfolder(),
+                            output_dir=output_dir,
                             progress_cb=self._set_status,
                             return_text=True,
                         )
@@ -890,13 +893,16 @@ class App(DnDTk):
         self._set_status(f"Found {len(files)} file(s) in {folder.name} — converting…")
         self._drop_frame.configure(border_color="orange")
 
+        # Get output directory (with datetime subfolder if enabled) once for all files
+        output_dir = self._get_output_dir_with_subfolder()
+
         ok, failed = 0, 0
         errors: list[str] = []
         seen_hints: set[str] = set()
         for i, src in enumerate(files, 1):
             self._set_status(f"[{i}/{len(files)}] {src.name}…")
             try:
-                out_path, src_text = conv.convert(src, output_dir=self._get_output_dir_with_subfolder(), progress_cb=self._set_status, return_text=True)
+                out_path, src_text = conv.convert(src, output_dir=output_dir, progress_cb=self._set_status, return_text=True)
                 stats = conv.token_stats(src_text, out_path, src=src)
                 self.after(0, self._add_file_row, out_path, stats, src.suffix.lower())
                 ok += 1
