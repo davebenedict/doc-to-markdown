@@ -68,7 +68,7 @@ ACCEPTED_TYPES = _build_accepted_types()
 # ---------------------------------------------------------------------------
 
 class FileRow(ctk.CTkFrame):
-    def __init__(self, master, md_path: Path, **kwargs):
+    def __init__(self, master, md_path: Path, token_stats: dict | None = None, **kwargs):
         super().__init__(master, corner_radius=6, **kwargs)
         self.md_path = md_path
 
@@ -85,6 +85,32 @@ class FileRow(ctk.CTkFrame):
             wraplength=280,
         )
         name.pack(side="left", fill="x", expand=True, padx=4, pady=6)
+
+        if token_stats:
+            pct = token_stats.get("savings_pct")
+            if pct is not None:
+                if pct > 0:
+                    badge_text = f"↓{pct}% tokens"
+                    badge_color = "#2d6a2d"
+                    text_color = "#7ec87e"
+                elif pct < 0:
+                    badge_text = f"↑{abs(pct)}% tokens"
+                    badge_color = "#5a2d2d"
+                    text_color = "#e06c75"
+                else:
+                    badge_text = "≈ same tokens"
+                    badge_color = "gray30"
+                    text_color = "gray60"
+                badge = ctk.CTkLabel(
+                    self,
+                    text=badge_text,
+                    font=("Segoe UI", 10),
+                    fg_color=badge_color,
+                    text_color=text_color,
+                    corner_radius=4,
+                    padx=6,
+                )
+                badge.pack(side="left", padx=(0, 6), pady=6)
 
         reveal_btn = ctk.CTkButton(
             self,
@@ -432,7 +458,8 @@ class App(DnDTk):
                 output_dir=self._output_dir or downloaded.parent,
                 progress_cb=self._set_status,
             )
-            self.after(0, self._add_file_row, out_path)
+            stats = conv.token_stats(downloaded, out_path)
+            self.after(0, self._add_file_row, out_path, stats)
             self._set_status(f"Done — {out_path.name}")
         except TimeoutError as exc:
             self._set_status("Timed out waiting for download.", error=True)
@@ -514,7 +541,8 @@ class App(DnDTk):
                             output_dir=self._output_dir,
                             progress_cb=self._set_status,
                         )
-                        self.after(0, self._add_file_row, out_path)
+                        stats = conv.token_stats(src, out_path)
+                        self.after(0, self._add_file_row, out_path, stats)
                         ok += 1
                     except Exception as exc:
                         self._set_status(f"Error on {src.name}: {exc}", error=True)
@@ -557,7 +585,8 @@ class App(DnDTk):
             self._set_status(f"[{i}/{len(files)}] {src.name}…")
             try:
                 out_path = conv.convert(src, output_dir=self._output_dir, progress_cb=self._set_status)
-                self.after(0, self._add_file_row, out_path)
+                stats = conv.token_stats(src, out_path)
+                self.after(0, self._add_file_row, out_path, stats)
                 ok += 1
             except Exception as exc:
                 self._set_status(f"Error on {src.name}: {exc}", error=True)
@@ -574,7 +603,7 @@ class App(DnDTk):
     # UI update helpers (always called on main thread via after())
     # ------------------------------------------------------------------
 
-    def _add_file_row(self, md_path: Path):
+    def _add_file_row(self, md_path: Path, token_stats: dict | None = None):
         # Remove the "no files" placeholder if present
         if self._empty_label.winfo_exists():
             try:
@@ -582,7 +611,7 @@ class App(DnDTk):
             except Exception:
                 pass
 
-        row = FileRow(self._file_list_frame, md_path)
+        row = FileRow(self._file_list_frame, md_path, token_stats=token_stats)
         row.pack(fill="x", pady=(0, 4))
 
     def _set_status(self, msg: str, error: bool = False):

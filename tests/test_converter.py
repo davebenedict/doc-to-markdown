@@ -246,6 +246,46 @@ class TestInlineRuns:
 
 
 # ---------------------------------------------------------------------------
+# token_stats
+# ---------------------------------------------------------------------------
+
+class TestTokenStats:
+    def test_reduction(self, tmp_path):
+        src = tmp_path / "big.bin"
+        src.write_bytes(b"x" * 4000)           # 4000 bytes → 1000 src tokens
+        out = tmp_path / "small.md"
+        out.write_text("a" * 400, encoding="utf-8")  # 400 chars → 100 out tokens
+        stats = conv.token_stats(src, out)
+        assert stats["src_tokens"] == 1000
+        assert stats["out_tokens"] == 100
+        assert stats["savings_pct"] == 90
+
+    def test_increase(self, tmp_path):
+        src = tmp_path / "tiny.bin"
+        src.write_bytes(b"x" * 40)             # 10 src tokens
+        out = tmp_path / "big.md"
+        out.write_text("a" * 800, encoding="utf-8")  # 200 out tokens
+        stats = conv.token_stats(src, out)
+        assert stats["savings_pct"] < 0
+
+    def test_zero_src_size(self, tmp_path):
+        src = tmp_path / "empty.bin"
+        src.write_bytes(b"")
+        out = tmp_path / "out.md"
+        out.write_text("hello", encoding="utf-8")
+        stats = conv.token_stats(src, out)
+        assert stats["savings_pct"] is None
+
+    def test_keys_present(self, tmp_path):
+        src = tmp_path / "f.bin"
+        src.write_bytes(b"x" * 100)
+        out = tmp_path / "f.md"
+        out.write_text("y" * 100, encoding="utf-8")
+        stats = conv.token_stats(src, out)
+        assert {"src_tokens", "out_tokens", "savings_pct"} == set(stats.keys())
+
+
+# ---------------------------------------------------------------------------
 # _require helper
 # ---------------------------------------------------------------------------
 

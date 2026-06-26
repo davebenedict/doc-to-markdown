@@ -389,6 +389,27 @@ def _convert_html(path: Path, progress_cb: Callable[[str], None] | None = None) 
 
 
 # ---------------------------------------------------------------------------
+# Token estimation
+# ---------------------------------------------------------------------------
+
+def token_stats(src: Path, out: Path) -> dict:
+    """
+    Return approximate token counts for *src* and *out*.
+
+    Uses bytes-per-4 as the estimate for the source (works for binary formats
+    like PDF/DOCX where raw text is not cheaply available) and chars-per-4 for
+    the output markdown (plain text, so char count is more meaningful).
+
+    Returns a dict with keys: src_tokens, out_tokens, savings_pct.
+    savings_pct is None when src_tokens is 0.
+    """
+    src_tokens = src.stat().st_size // 4
+    out_tokens = len(out.read_text(encoding="utf-8", errors="replace")) // 4
+    savings_pct = round((1 - out_tokens / src_tokens) * 100) if src_tokens else None
+    return {"src_tokens": src_tokens, "out_tokens": out_tokens, "savings_pct": savings_pct}
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
