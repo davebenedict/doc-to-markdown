@@ -181,3 +181,57 @@ class TestTkinterEventBindings:
         # Check that the _show_formats binding uses a lambda
         assert 'self._drop_sub.bind("<Button-1>", lambda e: self._show_formats())' in content, \
             "Tkinter event callbacks require lambda to accept event argument"
+
+
+# ---------------------------------------------------------------------------
+# Config file functionality
+# ---------------------------------------------------------------------------
+
+class TestConfigFile:
+    def test_config_file_path_exists(self):
+        """Verify config file path constant is defined."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        assert "_CONFIG_FILE" in content, \
+            "_CONFIG_FILE constant must be defined"
+
+    def test_config_file_path_in_home_directory(self):
+        """Verify config file is stored in user home directory."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        assert 'Path.home()' in content, \
+            "Config file should be stored in user home directory"
+
+    def test_config_file_name_is_correct(self):
+        """Verify config file has correct name."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        assert '".doc2md_config.json"' in content, \
+            "Config file should be named .doc2md_config.json"
+
+
+# ---------------------------------------------------------------------------
+# Datetime subfolder functionality
+# ---------------------------------------------------------------------------
+
+class TestDatetimeSubfolder:
+    def test_datetime_subfolder_method_exists(self):
+        """Verify _get_output_dir_with_subfolder method exists in App class."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        assert "def _get_output_dir_with_subfolder" in content, \
+            "_get_output_dir_with_subfolder method must be defined"
+
+    def test_datetime_subfolder_imports_datetime(self):
+        """Verify datetime module is imported for subfolder generation."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        assert "from datetime import datetime" in content, \
+            "datetime module must be imported for subfolder generation"
+
+    def test_datetime_subfolder_creates_folder(self):
+        """Verify datetime subfolder logic includes folder creation."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        assert ".mkdir(parents=True, exist_ok=True)" in content, \
+            "datetime subfolder should create folder if it doesn't exist"
