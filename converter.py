@@ -407,33 +407,59 @@ def token_stats(src_text: str, out: Path, src: Path | None = None) -> dict:
     """
     Return token counts for the source document and the output markdown.
 
-    When tiktoken is available (cl100k_base), both sides are counted from
-    their text content — exact counts compatible with GPT-4 / most RAGs.
-
-    When tiktoken is NOT available, the source side falls back to
-    file bytes÷4 (requires *src* path) so there is a meaningful size
-    difference to compare against; the output side uses chars÷4.
+    Always computes both tiktoken (cl100k_base) and fallback (file bytes÷4
+    vs chars÷4) numbers so the UI can toggle between them.
 
     Parameters
     ----------
     src_text : the plain text extracted from the source document
     out      : path to the generated .md file
-    src      : path to the original source file (used for fallback only)
+    src      : path to the original source file (used for fallback src side)
 
-    Returns a dict with keys: src_tokens, out_tokens, savings_pct, method.
-    savings_pct is None when src_tokens is 0.
+    Returns a dict with keys:
+      tiktoken_available        bool
+      tiktoken_src, tiktoken_out, tiktoken_pct   (None if unavailable)
+      fallback_src, fallback_out, fallback_pct
+      src_tokens, out_tokens, savings_pct, method  (active values — tiktoken
+                                                    preferred, fallback used
+                                                    when tiktoken unavailable)
     """
     out_text = out.read_text(encoding="utf-8", errors="replace")
+
+    # --- tiktoken numbers ---
     if _enc is not None:
-        src_tokens = _count_tokens(src_text)
-        out_tokens = _count_tokens(out_text)
-        method = "tiktoken cl100k_base"
+        tiktoken_src = _count_tokens(src_text)
+        tiktoken_out = _count_tokens(out_text)
+        tiktoken_pct = round((1 - tiktoken_out / tiktoken_src) * 100) if tiktoken_src else None
     else:
-        src_tokens = (src.stat().st_size // 4) if src is not None else (len(src_text) // 4)
-        out_tokens = len(out_text) // 4
-        method = "file bytes÷4" if src is not None else "chars÷4"
-    savings_pct = round((1 - out_tokens / src_tokens) * 100) if src_tokens else None
-    return {"src_tokens": src_tokens, "out_tokens": out_tokens, "savings_pct": savings_pct, "method": method}
+        tiktoken_src = tiktoken_out = tiktoken_pct = None
+
+    # --- fallback numbers ---
+    fallback_src = (src.stat().st_size // 4) if src is not None else (len(src_text) // 4)
+    fallback_out = len(out_text) // 4
+    fallback_pct = round((1 - fallback_out / fallback_src) * 100) if fallback_src else None
+    fallback_method = "file bytes÷4" if src is not None else "chars÷4"
+
+    # Active values: prefer tiktoken
+    if _enc is not None:
+        src_tokens, out_tokens, savings_pct, method = tiktoken_src, tiktoken_out, tiktoken_pct, "tiktoken cl100k_base"
+    else:
+        src_tokens, out_tokens, savings_pct, method = fallback_src, fallback_out, fallback_pct, fallback_method
+
+    return {
+        "tiktoken_available": _enc is not None,
+        "tiktoken_src": tiktoken_src,
+        "tiktoken_out": tiktoken_out,
+        "tiktoken_pct": tiktoken_pct,
+        "fallback_src": fallback_src,
+        "fallback_out": fallback_out,
+        "fallback_pct": fallback_pct,
+        "fallback_method": fallback_method,
+        "src_tokens": src_tokens,
+        "out_tokens": out_tokens,
+        "savings_pct": savings_pct,
+        "method": method,
+    }
 
 
 # ---------------------------------------------------------------------------

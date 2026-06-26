@@ -284,7 +284,13 @@ class TestTokenStats:
         out = tmp_path / "f.md"
         out.write_text("y" * 100, encoding="utf-8")
         stats = conv.token_stats("x" * 100, out)
-        assert {"src_tokens", "out_tokens", "savings_pct", "method"} == set(stats.keys())
+        required = {
+            "tiktoken_available",
+            "tiktoken_src", "tiktoken_out", "tiktoken_pct",
+            "fallback_src", "fallback_out", "fallback_pct", "fallback_method",
+            "src_tokens", "out_tokens", "savings_pct", "method",
+        }
+        assert required == set(stats.keys())
 
     def test_method_key_is_string(self, tmp_path):
         out = tmp_path / "f.md"

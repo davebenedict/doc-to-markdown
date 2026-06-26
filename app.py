@@ -67,10 +67,24 @@ ACCEPTED_TYPES = _build_accepted_types()
 # FileRow widget — one converted file entry
 # ---------------------------------------------------------------------------
 
+def _badge_parts(pct: int | None, out_tokens: int) -> tuple[str, str, str]:
+    """Return (text, fg_color, text_color) for a token savings badge."""
+    if out_tokens == 0:
+        return "⚠ empty output", "#6b4a00", "#f0a500"
+    if pct is None:
+        return "— tokens", "gray30", "gray60"
+    if pct > 0:
+        return f"↓{pct}% tokens", "#2d6a2d", "#7ec87e"
+    if pct < 0:
+        return f"↑{abs(pct)}% tokens", "#5a2d2d", "#e06c75"
+    return "≈ same tokens", "gray30", "gray60"
+
+
 class FileRow(ctk.CTkFrame):
     def __init__(self, master, md_path: Path, token_stats: dict | None = None, src_ext: str | None = None, **kwargs):
         super().__init__(master, corner_radius=6, **kwargs)
         self.md_path = md_path
+        self._token_stats = token_stats
 
         self.configure(fg_color=("gray20", "gray20"))
 
@@ -99,35 +113,30 @@ class FileRow(ctk.CTkFrame):
             ext_label.pack(side="left", padx=(0, 4), pady=6)
 
         if token_stats:
-            pct = token_stats.get("savings_pct")
-            out_tokens = token_stats.get("out_tokens", 1)
-            if pct is not None:
-                if out_tokens == 0:
-                    badge_text = "⚠ empty output"
-                    badge_color = "#6b4a00"
-                    text_color = "#f0a500"
-                elif pct > 0:
-                    badge_text = f"↓{pct}% tokens"
-                    badge_color = "#2d6a2d"
-                    text_color = "#7ec87e"
-                elif pct < 0:
-                    badge_text = f"↑{abs(pct)}% tokens"
-                    badge_color = "#5a2d2d"
-                    text_color = "#e06c75"
-                else:
-                    badge_text = "≈ same tokens"
-                    badge_color = "gray30"
-                    text_color = "gray60"
-                badge = ctk.CTkLabel(
-                    self,
-                    text=badge_text,
-                    font=("Segoe UI", 10),
-                    fg_color=badge_color,
-                    text_color=text_color,
-                    corner_radius=4,
-                    padx=6,
-                )
-                badge.pack(side="left", padx=(0, 6), pady=6)
+            self._badge = ctk.CTkLabel(
+                self,
+                text="",
+                font=("Segoe UI", 10),
+                corner_radius=4,
+                padx=6,
+            )
+            self._badge.pack(side="left", padx=(0, 6), pady=6)
+            self.refresh_badge(use_tiktoken=token_stats.get("tiktoken_available", False))
+        else:
+            self._badge = None
+
+    def refresh_badge(self, use_tiktoken: bool):
+        if self._badge is None or self._token_stats is None:
+            return
+        stats = self._token_stats
+        if use_tiktoken and stats.get("tiktoken_available"):
+            pct = stats.get("tiktoken_pct")
+            out_tok = stats.get("tiktoken_out", 1)
+        else:
+            pct = stats.get("fallback_pct")
+            out_tok = stats.get("fallback_out", 1)
+        text, fg, tc = _badge_parts(pct, out_tok)
+        self._badge.configure(text=text, fg_color=fg, text_color=tc)
 
         reveal_btn = ctk.CTkButton(
             self,
@@ -187,6 +196,8 @@ class App(DnDTk):
         self._busy = False
         self._queue: list[Path] = []
         self._skipped_files: list[str] = []
+        self._file_rows: list[FileRow] = []
+        self._use_tiktoken_var = ctk.BooleanVar(value=True)
 
         self._build_ui()
         self._register_dnd()
@@ -362,8 +373,22 @@ class App(DnDTk):
         sep.pack(fill="x", padx=24, pady=(8, 14))
 
         # Converted files section
-        files_header = ctk.CTkLabel(self, text="Converted Files", font=("Segoe UI", 13, "bold"), anchor="w")
-        files_header.pack(fill="x", padx=24, pady=(0, 6))
+        files_hdr_row = ctk.CTkFrame(self, fg_color="transparent")
+        files_hdr_row.pack(fill="x", padx=24, pady=(0, 6))
+
+        files_header = ctk.CTkLabel(files_hdr_row, text="Converted Files", font=("Segoe UI", 13, "bold"), anchor="w")
+        files_header.pack(side="left")
+
+        self._token_mode_btn = ctk.CTkSegmentedButton(
+            files_hdr_row,
+            values=["tiktoken", "file size"],
+            command=self._on_token_mode_change,
+            font=("Segoe UI", 10),
+            width=160,
+            height=24,
+        )
+        self._token_mode_btn.set("tiktoken")
+        self._token_mode_btn.pack(side="right")
 
         # Scrollable file list
         self._file_list_frame = ctk.CTkScrollableFrame(
@@ -673,8 +698,17 @@ class App(DnDTk):
             except Exception:
                 pass
 
+        use_tiktoken = self._use_tiktoken_var.get()
         row = FileRow(self._file_list_frame, md_path, token_stats=token_stats, src_ext=src_ext)
+        row.refresh_badge(use_tiktoken=use_tiktoken)
         row.pack(fill="x", pady=(0, 4))
+        self._file_rows.append(row)
+
+    def _on_token_mode_change(self, value: str):
+        use_tiktoken = (value == "tiktoken")
+        self._use_tiktoken_var.set(use_tiktoken)
+        for row in self._file_rows:
+            row.refresh_badge(use_tiktoken=use_tiktoken)
 
     def _on_status_click(self):
         if not self._skipped_files:
