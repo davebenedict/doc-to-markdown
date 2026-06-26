@@ -181,16 +181,20 @@ def _pdf_ocr(path: Path, total_pages: int, progress_cb) -> str:
     pytesseract = _require("pytesseract")
 
     # Try to auto-detect tesseract path on Windows if not configured
-    if sys.platform == "win32" and not hasattr(pytesseract, "pytesseract") or not pytesseract.pytesseract.tesseract_cmd:
-        common_paths = [
-            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-            r"C:\Users\{}\AppData\Local\Programs\Tesseract-OCR\tesseract.exe".format(os.getenv("USERNAME", "")),
-        ]
-        for tesseract_path in common_paths:
-            if os.path.exists(tesseract_path):
-                pytesseract.pytesseract.tesseract_cmd = tesseract_path
-                break
+    if sys.platform == "win32":
+        try:
+            if not pytesseract.pytesseract.tesseract_cmd:
+                common_paths = [
+                    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+                    r"C:\Users\{}\AppData\Local\Programs\Tesseract-OCR\tesseract.exe".format(os.getenv("USERNAME", "")),
+                ]
+                for tesseract_path in common_paths:
+                    if os.path.exists(tesseract_path):
+                        pytesseract.pytesseract.tesseract_cmd = tesseract_path
+                        break
+        except AttributeError:
+            pass
 
     parts: list[str] = []
 
@@ -215,16 +219,20 @@ def _convert_image(path: Path, progress_cb: Callable[[str], None] | None = None)
     Image = _require("Pillow", "PIL.Image")
 
     # Try to auto-detect tesseract path on Windows if not configured
-    if sys.platform == "win32" and not hasattr(pytesseract, "pytesseract") or not pytesseract.pytesseract.tesseract_cmd:
-        common_paths = [
-            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-            r"C:\Users\{}\AppData\Local\Programs\Tesseract-OCR\tesseract.exe".format(os.getenv("USERNAME", "")),
-        ]
-        for tesseract_path in common_paths:
-            if os.path.exists(tesseract_path):
-                pytesseract.pytesseract.tesseract_cmd = tesseract_path
-                break
+    if sys.platform == "win32":
+        try:
+            if not pytesseract.pytesseract.tesseract_cmd:
+                common_paths = [
+                    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+                    r"C:\Users\{}\AppData\Local\Programs\Tesseract-OCR\tesseract.exe".format(os.getenv("USERNAME", "")),
+                ]
+                for tesseract_path in common_paths:
+                    if os.path.exists(tesseract_path):
+                        pytesseract.pytesseract.tesseract_cmd = tesseract_path
+                        break
+        except AttributeError:
+            pass
 
     if progress_cb:
         progress_cb(f"Running OCR on {path.name}…")
