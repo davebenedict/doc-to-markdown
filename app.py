@@ -406,7 +406,7 @@ class App(DnDTk):
             hover_color="gray45",
             command=self._browse_output,
         )
-        browse_btn.pack(side="right")
+        browse_btn.pack(side="right", padx=(0, 12))
 
         clear_btn = ctk.CTkButton(
             out_row,
