@@ -472,12 +472,13 @@ class App(DnDTk):
         try:
             downloaded = gdrive.download(url, dest_dir=self._output_dir, progress_cb=self._set_status)
             self._set_status(f"Downloaded — converting {downloaded.name}…")
-            out_path = conv.convert(
+            out_path, src_text = conv.convert(
                 downloaded,
                 output_dir=self._output_dir or downloaded.parent,
                 progress_cb=self._set_status,
+                return_text=True,
             )
-            stats = conv.token_stats(downloaded, out_path)
+            stats = conv.token_stats(src_text, out_path)
             self.after(0, self._add_file_row, out_path, stats, downloaded.suffix.lower())
             self._set_status(f"Done — {out_path.name}")
         except TimeoutError as exc:
@@ -568,12 +569,13 @@ class App(DnDTk):
                 for i, src in enumerate(files, 1):
                     self._set_status(f"[{ok + failed + 1}/{total}] Converting {src.name}…" if total > 1 else f"Converting {src.name}…")
                     try:
-                        out_path = conv.convert(
+                        out_path, src_text = conv.convert(
                             src,
                             output_dir=self._output_dir,
                             progress_cb=self._set_status,
+                            return_text=True,
                         )
-                        stats = conv.token_stats(src, out_path)
+                        stats = conv.token_stats(src_text, out_path)
                         self.after(0, self._add_file_row, out_path, stats, src.suffix.lower())
                         ok += 1
                     except Exception as exc:
@@ -637,8 +639,8 @@ class App(DnDTk):
         for i, src in enumerate(files, 1):
             self._set_status(f"[{i}/{len(files)}] {src.name}…")
             try:
-                out_path = conv.convert(src, output_dir=self._output_dir, progress_cb=self._set_status)
-                stats = conv.token_stats(src, out_path)
+                out_path, src_text = conv.convert(src, output_dir=self._output_dir, progress_cb=self._set_status, return_text=True)
+                stats = conv.token_stats(src_text, out_path)
                 self.after(0, self._add_file_row, out_path, stats, src.suffix.lower())
                 ok += 1
             except Exception as exc:

@@ -392,21 +392,37 @@ def _convert_html(path: Path, progress_cb: Callable[[str], None] | None = None) 
 # Token estimation
 # ---------------------------------------------------------------------------
 
-def token_stats(src: Path, out: Path) -> dict:
+try:
+    import tiktoken as _tiktoken
+    _enc = _tiktoken.get_encoding("cl100k_base")
+    def _count_tokens(text: str) -> int:
+        return len(_enc.encode(text))
+except Exception:
+    _enc = None
+    def _count_tokens(text: str) -> int:  # type: ignore[misc]
+        return len(text) // 4
+
+
+def token_stats(src_text: str, out: Path) -> dict:
     """
-    Return approximate token counts for *src* and *out*.
+    Return token counts for the raw source text and the output markdown.
 
-    Uses bytes-per-4 as the estimate for the source (works for binary formats
-    like PDF/DOCX where raw text is not cheaply available) and chars-per-4 for
-    the output markdown (plain text, so char count is more meaningful).
+    Uses tiktoken cl100k_base when available (exact counts compatible with
+    GPT-4 / most embedding models), otherwise falls back to chars÷4.
 
-    Returns a dict with keys: src_tokens, out_tokens, savings_pct.
+    Parameters
+    ----------
+    src_text : the plain text extracted from the source document
+    out      : path to the generated .md file
+
+    Returns a dict with keys: src_tokens, out_tokens, savings_pct, method.
     savings_pct is None when src_tokens is 0.
     """
-    src_tokens = src.stat().st_size // 4
-    out_tokens = len(out.read_text(encoding="utf-8", errors="replace")) // 4
+    src_tokens = _count_tokens(src_text)
+    out_tokens = _count_tokens(out.read_text(encoding="utf-8", errors="replace"))
     savings_pct = round((1 - out_tokens / src_tokens) * 100) if src_tokens else None
-    return {"src_tokens": src_tokens, "out_tokens": out_tokens, "savings_pct": savings_pct}
+    method = "tiktoken cl100k_base" if _enc is not None else "chars÷4"
+    return {"src_tokens": src_tokens, "out_tokens": out_tokens, "savings_pct": savings_pct, "method": method}
 
 
 # ---------------------------------------------------------------------------
@@ -417,7 +433,8 @@ def convert(
     input_path: str | Path,
     output_dir: str | Path | None = None,
     progress_cb: Callable[[str], None] | None = None,
-) -> Path:
+    return_text: bool = False,
+) -> Path | tuple[Path, str]:
     """
     Convert *input_path* to a markdown file.
 
@@ -480,4 +497,6 @@ def convert(
         else:
             progress_cb(f"Done — {out_path.name}")
 
+    if return_text:
+        return out_path, md
     return out_path

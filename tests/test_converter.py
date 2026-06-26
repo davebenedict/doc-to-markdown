@@ -251,47 +251,47 @@ class TestInlineRuns:
 
 class TestTokenStats:
     def test_reduction(self, tmp_path):
-        src = tmp_path / "big.bin"
-        src.write_bytes(b"x" * 4000)           # 4000 bytes → 1000 src tokens
+        src_text = "word " * 400              # ~400 tokens (tiktoken) or 2000 chars
         out = tmp_path / "small.md"
-        out.write_text("a" * 400, encoding="utf-8")  # 400 chars → 100 out tokens
-        stats = conv.token_stats(src, out)
-        assert stats["src_tokens"] == 1000
-        assert stats["out_tokens"] == 100
-        assert stats["savings_pct"] == 90
+        out.write_text("a" * 4, encoding="utf-8")  # tiny output
+        stats = conv.token_stats(src_text, out)
+        assert stats["src_tokens"] > 0
+        assert stats["out_tokens"] < stats["src_tokens"]
+        assert stats["savings_pct"] > 0
 
     def test_increase(self, tmp_path):
-        src = tmp_path / "tiny.bin"
-        src.write_bytes(b"x" * 40)             # 10 src tokens
+        src_text = "hello"                     # very short source (~1 token)
         out = tmp_path / "big.md"
-        out.write_text("a" * 800, encoding="utf-8")  # 200 out tokens
-        stats = conv.token_stats(src, out)
+        out.write_text("word " * 400, encoding="utf-8")  # large output (~400 tokens)
+        stats = conv.token_stats(src_text, out)
+        assert stats["savings_pct"] is not None
         assert stats["savings_pct"] < 0
 
-    def test_zero_src_size(self, tmp_path):
-        src = tmp_path / "empty.bin"
-        src.write_bytes(b"")
+    def test_zero_src_text(self, tmp_path):
         out = tmp_path / "out.md"
         out.write_text("hello", encoding="utf-8")
-        stats = conv.token_stats(src, out)
+        stats = conv.token_stats("", out)
         assert stats["savings_pct"] is None
 
     def test_empty_output_zero_tokens(self, tmp_path):
-        src = tmp_path / "src.bin"
-        src.write_bytes(b"x" * 400)
         out = tmp_path / "out.md"
         out.write_text("", encoding="utf-8")    # empty output
-        stats = conv.token_stats(src, out)
+        stats = conv.token_stats("some source text here", out)
         assert stats["out_tokens"] == 0
         assert stats["savings_pct"] == 100
 
     def test_keys_present(self, tmp_path):
-        src = tmp_path / "f.bin"
-        src.write_bytes(b"x" * 100)
         out = tmp_path / "f.md"
         out.write_text("y" * 100, encoding="utf-8")
-        stats = conv.token_stats(src, out)
-        assert {"src_tokens", "out_tokens", "savings_pct"} == set(stats.keys())
+        stats = conv.token_stats("x" * 100, out)
+        assert {"src_tokens", "out_tokens", "savings_pct", "method"} == set(stats.keys())
+
+    def test_method_key_is_string(self, tmp_path):
+        out = tmp_path / "f.md"
+        out.write_text("hello", encoding="utf-8")
+        stats = conv.token_stats("hello world", out)
+        assert isinstance(stats["method"], str)
+        assert stats["method"] in ("tiktoken cl100k_base", "chars÷4")
 
 
 # ---------------------------------------------------------------------------
