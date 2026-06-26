@@ -167,3 +167,17 @@ class TestFolderMarkdownExclusion:
         convertible, md_skipped = _folder_categorise(all_files)
         assert md_skipped == 2
         assert len(convertible) == 2
+
+
+# ---------------------------------------------------------------------------
+# Tkinter event binding constraints
+# ---------------------------------------------------------------------------
+
+class TestTkinterEventBindings:
+    def test_show_formats_binding_uses_lambda(self):
+        """Ensure _show_formats binding uses lambda (Tkinter requires event arg)."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        # Check that the _show_formats binding uses a lambda
+        assert 'self._drop_sub.bind("<Button-1>", lambda e: self._show_formats())' in content, \
+            "Tkinter event callbacks require lambda to accept event argument"

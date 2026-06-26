@@ -287,6 +287,7 @@ class App(DnDTk):
             cursor="hand2",
         )
         self._drop_sub.pack(pady=(2, 0))
+        # Lambda required: Tkinter event callbacks always receive an event argument
         self._drop_sub.bind("<Button-1>", lambda e: self._show_formats())
 
         # Make the drop zone clickable to browse
