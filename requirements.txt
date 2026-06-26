@@ -9,5 +9,5 @@ markdownify==0.13.1
 openpyxl==3.1.5
 xlrd==2.0.1
 python-pptx==1.0.2
-tiktoken==0.7.0
+tiktoken==0.13.0
 pytest==8.2.2
