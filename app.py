@@ -226,9 +226,25 @@ class App(DnDTk):
     # ------------------------------------------------------------------
 
     def _build_ui(self):
-        # Title
-        title = ctk.CTkLabel(self, text="Doc \u2192 Markdown", font=FONT_TITLE)
-        title.pack(pady=(20, 4))
+        # Title row
+        title_row = ctk.CTkFrame(self, fg_color="transparent")
+        title_row.pack(fill="x", padx=24, pady=(20, 4))
+
+        title = ctk.CTkLabel(title_row, text="Doc \u2192 Markdown", font=FONT_TITLE)
+        title.pack(side="left", expand=True)
+
+        why_btn = ctk.CTkButton(
+            title_row,
+            text="? Why use this",
+            width=110,
+            height=24,
+            font=("Segoe UI", 10),
+            fg_color="gray25",
+            hover_color="gray35",
+            text_color="gray70",
+            command=self._show_why,
+        )
+        why_btn.pack(side="right")
 
         subtitle = ctk.CTkLabel(
             self,
@@ -735,6 +751,36 @@ class App(DnDTk):
         row.refresh_badge(use_tiktoken=use_tiktoken)
         row.pack(fill="x", pady=(0, 4))
         self._file_rows.append(row)
+
+    def _show_why(self):
+        msg = (
+            "Why convert to Markdown even when token counts look similar?\n"
+            "\n"
+            "✓  Better LLM comprehension\n"
+            "    LLMs parse Markdown structure natively. A PDF table becomes\n"
+            "    garbled prose after extraction; the same table as | col | col |\n"
+            "    is unambiguous. The model reasons better on clean structure.\n"
+            "\n"
+            "✓  Dramatically better RAG chunking\n"
+            "    RAG pipelines split documents into chunks. PDFs split\n"
+            "    arbitrarily — mid-sentence or mid-table. Markdown splits\n"
+            "    cleanly on ## headings, giving higher-quality retrieval\n"
+            "    and fewer hallucinations.\n"
+            "\n"
+            "✓  You control what the LLM sees\n"
+            "    Every tool re-extracts PDFs differently. The Markdown is a\n"
+            "    canonical, inspectable version you can review and correct\n"
+            "    before it reaches the model.\n"
+            "\n"
+            "✓  Real token savings for HTML, Excel, and PPTX\n"
+            "    Stripping HTML tags, layout markup, and slide structure\n"
+            "    typically saves 40–80% of tokens for those formats.\n"
+            "\n"
+            "✓  Portable and reusable\n"
+            "    One Markdown file works in NotebookLM, ChatGPT, Claude,\n"
+            "    LangChain, LlamaIndex — no re-extraction on each use."
+        )
+        messagebox.showinfo("Why convert to Markdown?", msg)
 
     def _on_token_mode_change(self, value: str):
         use_tiktoken = (value == "tiktoken")
