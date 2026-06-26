@@ -249,7 +249,7 @@ class App(DnDTk):
 
         # Set minimum width to ensure FileRow buttons fit on screen
         # Set minimum height to ensure status bar is visible
-        self.minsize(700, 750)
+        self.minsize(700, 780)
 
     # ------------------------------------------------------------------
     # UI construction
@@ -465,6 +465,42 @@ class App(DnDTk):
                 text_color="#e5a000",
             )
             tiktoken_hint.pack(side="right", padx=(0, 8))
+
+        # Column headings row
+        col_header_frame = ctk.CTkFrame(self, fg_color="gray15", corner_radius=8)
+        col_header_frame.pack(fill="x", padx=24, pady=(0, 4))
+
+        # Configure grid weights to match FileRow
+        col_header_frame.grid_columnconfigure(0, weight=0, minsize=30)
+        col_header_frame.grid_columnconfigure(1, weight=0, minsize=180)
+        col_header_frame.grid_columnconfigure(2, weight=0, minsize=45)
+        col_header_frame.grid_columnconfigure(3, weight=0, minsize=70)
+        col_header_frame.grid_columnconfigure(4, weight=0, minsize=120)
+        col_header_frame.grid_columnconfigure(5, weight=0, minsize=60)
+        col_header_frame.grid_columnconfigure(6, weight=0, minsize=60)
+
+        # Header labels
+        ctk.CTkLabel(col_header_frame, text="", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
+            row=0, column=0, padx=(8, 4), pady=8, sticky="w"
+        )
+        ctk.CTkLabel(col_header_frame, text="Filename", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
+            row=0, column=1, padx=4, pady=8, sticky="w"
+        )
+        ctk.CTkLabel(col_header_frame, text="Type", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
+            row=0, column=2, padx=(0, 4), pady=8, sticky="w"
+        )
+        ctk.CTkLabel(col_header_frame, text="Tokens", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
+            row=0, column=3, padx=(0, 6), pady=8, sticky="w"
+        )
+        ctk.CTkLabel(col_header_frame, text="Note", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
+            row=0, column=4, padx=(0, 6), pady=8, sticky="w"
+        )
+        ctk.CTkLabel(col_header_frame, text="Reveal", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
+            row=0, column=5, padx=(4, 4), pady=8, sticky="w"
+        )
+        ctk.CTkLabel(col_header_frame, text="Open", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
+            row=0, column=6, padx=(4, 8), pady=8, sticky="w"
+        )
 
         # Scrollable file list
         self._file_list_frame = ctk.CTkScrollableFrame(
