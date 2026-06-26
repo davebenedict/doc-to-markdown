@@ -249,7 +249,7 @@ class App(DnDTk):
 
         # Set minimum width to ensure FileRow buttons fit on screen
         # Set minimum height to ensure status bar is visible
-        self.minsize(700, 600)
+        self.minsize(700, 750)
 
     # ------------------------------------------------------------------
     # UI construction
