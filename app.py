@@ -648,6 +648,12 @@ class App(DnDTk):
                         stats = conv.token_stats(src_text, out_path, src=src)
                         self.after(0, self._add_file_row, out_path, stats, src.suffix.lower())
                         ok += 1
+                    except ImportError as exc:
+                        pkg = conv.MISSING_DEPS.get(src.suffix.lower(), str(exc))
+                        hint = f"missing library — pip install {pkg}"
+                        if not any(hint in d for d in details):
+                            details.append(f"{src.suffix.lower()} files  ({hint})")
+                        failed += 1
                     except Exception as exc:
                         details.append(f"{src.name}  (error: {exc})")
                         failed += 1
@@ -713,6 +719,12 @@ class App(DnDTk):
                 stats = conv.token_stats(src_text, out_path, src=src)
                 self.after(0, self._add_file_row, out_path, stats, src.suffix.lower())
                 ok += 1
+            except ImportError as exc:
+                pkg = conv.MISSING_DEPS.get(src.suffix.lower(), str(exc))
+                hint = f"missing library — pip install {pkg}"
+                if not any(hint in d for d in errors):
+                    errors.append(f"{src.suffix.lower()} files  ({hint})")
+                failed += 1
             except Exception as exc:
                 errors.append(f"{src.name}  (error: {exc})")
                 failed += 1
@@ -750,39 +762,50 @@ class App(DnDTk):
         self._file_rows.append(row)
 
     def _show_formats(self):
-        msg = (
-            "Significant token savings (40–80%+)\n"
-            "  These formats carry heavy markup, tags, or binary overhead\n"
-            "  that is stripped during conversion.\n"
-            "\n"
-            "  HTML / HTM   — tags, scripts, nav menus stripped\n"
-            "  EPUB         — XML/CSS/nav boilerplate stripped\n"
-            "  XML          — all markup removed, text preserved\n"
-            "  RTF          — control words and formatting codes stripped\n"
-            "  XLSX / XLS   — cell structure compressed to tables\n"
-            "  PPTX         — slide layout markup removed\n"
-            "  CSV          — reformatted as clean markdown table\n"
-            "\n"
-            "─" * 44 + "\n"
-            "\n"
-            "Structural quality improvement (tokens similar)\n"
-            "  Token count stays about the same, but the LLM reads\n"
-            "  the content more accurately — better tables, headings,\n"
-            "  and chunking for RAG pipelines.\n"
-            "\n"
-            "  PDF          — text extracted, layout noise removed\n"
-            "  DOCX         — heading hierarchy and tables preserved\n"
-            "  ODT          — headings and paragraphs preserved\n"
-            "  JSON         — pretty-printed as fenced code block\n"
-            "\n"
-            "─" * 44 + "\n"
-            "\n"
-            "Image / OCR (savings depend on image content)\n"
-            "\n"
-            "  JPG / JPEG / PNG / TIFF / TIF / BMP\n"
-            "            — Tesseract OCR extracts text from images"
-        )
-        messagebox.showinfo("Supported Formats", msg)
+        def _fmt(label: str, exts: list[str], note: str) -> str:
+            missing = set(conv.MISSING_DEPS.get(e) for e in exts if e in conv.MISSING_DEPS)
+            suffix = f"  ⚠ pip install {', '.join(sorted(missing))}" if missing else ""
+            return f"  {label:<14}{note}{suffix}"
+
+        lines = [
+            "Significant token savings (40–80%+)",
+            "  These formats carry heavy markup or tags stripped on conversion.",
+            "",
+            _fmt("HTML / HTM",   [".html", ".htm"],       "— tags, scripts, nav menus stripped"),
+            _fmt("EPUB",         [".epub"],                "— XML/CSS/nav boilerplate stripped"),
+            _fmt("XML",          [".xml"],                 "— all markup removed, text preserved"),
+            _fmt("RTF",          [".rtf"],                 "— control words and formatting stripped"),
+            _fmt("XLSX / XLS",   [".xlsx", ".xls"],        "— cell structure compressed to tables"),
+            _fmt("PPTX",         [".pptx"],                "— slide layout markup removed"),
+            _fmt("CSV",          [".csv"],                 "— reformatted as clean markdown table"),
+            "",
+            "─" * 52,
+            "",
+            "Structural quality improvement (tokens similar)",
+            "  Token count stays about the same, but LLM accuracy improves.",
+            "",
+            _fmt("PDF",          [".pdf"],                 "— text extracted, layout noise removed"),
+            _fmt("DOCX",         [".docx"],                "— heading hierarchy and tables preserved"),
+            _fmt("ODT",          [".odt"],                 "— headings and paragraphs preserved"),
+            _fmt("JSON",         [".json"],                "— pretty-printed as fenced code block"),
+            "",
+            "─" * 52,
+            "",
+            "Image / OCR (savings depend on image content)",
+            "",
+            _fmt("JPG/PNG/TIFF", [".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp"],
+                                 "— Tesseract OCR extracts text from images"),
+        ]
+        missing_pkgs = sorted(set(conv.MISSING_DEPS.values()))
+        if missing_pkgs:
+            lines += [
+                "",
+                "─" * 52,
+                "",
+                "⚠  Missing libraries detected. Install with:",
+                f"   pip install {' '.join(missing_pkgs)}",
+            ]
+        messagebox.showinfo("Supported Formats", "\n".join(lines))
 
     def _show_why(self):
         msg = (

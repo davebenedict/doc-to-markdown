@@ -51,6 +51,42 @@ SUPPORTED_EXTENSIONS = {
 }
 OCR_TEXT_THRESHOLD = 50  # characters per page below which we treat PDF as scanned
 
+# Maps extension -> pip install hint for any optional dep missing at startup.
+# Populated lazily below after optional imports are attempted.
+MISSING_DEPS: dict[str, str] = {}
+
+
+def _probe_optional_deps():
+    """Check optional deps once at startup and populate MISSING_DEPS."""
+    import importlib
+    checks = [
+        (["fitz"],               [".pdf"],                          "PyMuPDF"),
+        (["PIL"],                [".jpg", ".jpeg", ".png",
+                                  ".tiff", ".tif", ".bmp"],         "Pillow"),
+        (["pytesseract"],        [".jpg", ".jpeg", ".png",
+                                  ".tiff", ".tif", ".bmp"],         "pytesseract"),
+        (["docx"],               [".docx"],                         "python-docx"),
+        (["markdownify"],        [".html", ".htm"],                  "markdownify"),
+        (["openpyxl"],           [".xlsx"],                          "openpyxl"),
+        (["xlrd"],               [".xls"],                           "xlrd"),
+        (["pptx"],               [".pptx"],                          "python-pptx"),
+        (["ebooklib"],           [".epub"],                          "ebooklib"),
+        (["striprtf.striprtf"],  [".rtf"],                           "striprtf"),
+        (["odf"],                [".odt"],                           "odfpy"),
+    ]
+    for modules, exts, pkg in checks:
+        for mod in modules:
+            try:
+                importlib.import_module(mod)
+            except ImportError:
+                for ext in exts:
+                    if ext not in MISSING_DEPS:
+                        MISSING_DEPS[ext] = pkg
+                break
+
+
+_probe_optional_deps()
+
 
 # ---------------------------------------------------------------------------
 # PDF conversion
