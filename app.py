@@ -68,7 +68,7 @@ ACCEPTED_TYPES = _build_accepted_types()
 # ---------------------------------------------------------------------------
 
 class FileRow(ctk.CTkFrame):
-    def __init__(self, master, md_path: Path, token_stats: dict | None = None, **kwargs):
+    def __init__(self, master, md_path: Path, token_stats: dict | None = None, src_ext: str | None = None, **kwargs):
         super().__init__(master, corner_radius=6, **kwargs)
         self.md_path = md_path
 
@@ -85,6 +85,18 @@ class FileRow(ctk.CTkFrame):
             wraplength=280,
         )
         name.pack(side="left", fill="x", expand=True, padx=4, pady=6)
+
+        if src_ext:
+            ext_label = ctk.CTkLabel(
+                self,
+                text=src_ext.lstrip(".").upper(),
+                font=("Segoe UI", 10),
+                fg_color="gray30",
+                text_color="gray65",
+                corner_radius=4,
+                padx=6,
+            )
+            ext_label.pack(side="left", padx=(0, 4), pady=6)
 
         if token_stats:
             pct = token_stats.get("savings_pct")
@@ -459,7 +471,7 @@ class App(DnDTk):
                 progress_cb=self._set_status,
             )
             stats = conv.token_stats(downloaded, out_path)
-            self.after(0, self._add_file_row, out_path, stats)
+            self.after(0, self._add_file_row, out_path, stats, downloaded.suffix.lower())
             self._set_status(f"Done — {out_path.name}")
         except TimeoutError as exc:
             self._set_status("Timed out waiting for download.", error=True)
@@ -505,8 +517,12 @@ class App(DnDTk):
     def _queue_batch(self, files: list[Path]):
         """Queue files for sequential conversion on a single background thread."""
         valid = []
+        md_skipped = 0
         for src in files:
             ext = src.suffix.lower()
+            if ext == ".md":
+                md_skipped += 1
+                continue
             if ext not in conv.SUPPORTED_EXTENSIONS:
                 self._set_status(f"Skipped: unsupported type '{ext}'", error=True)
                 continue
@@ -514,6 +530,13 @@ class App(DnDTk):
                 self._set_status(f"File not found: {src.name}", error=True)
                 continue
             valid.append(src)
+
+        if md_skipped:
+            noun = "file" if md_skipped == 1 else "files"
+            self._set_status(
+                f"Skipped {md_skipped} {noun} already in Markdown format.",
+                error=True,
+            )
 
         if not valid:
             return
@@ -542,7 +565,7 @@ class App(DnDTk):
                             progress_cb=self._set_status,
                         )
                         stats = conv.token_stats(src, out_path)
-                        self.after(0, self._add_file_row, out_path, stats)
+                        self.after(0, self._add_file_row, out_path, stats, src.suffix.lower())
                         ok += 1
                     except Exception as exc:
                         self._set_status(f"Error on {src.name}: {exc}", error=True)
@@ -568,10 +591,16 @@ class App(DnDTk):
     def _run_folder(self, folder: Path):
         recurse = self._recurse_var.get()
         pattern = "**/*" if recurse else "*"
-        files = [
-            f for f in folder.glob(pattern)
-            if f.is_file() and f.suffix.lower() in conv.SUPPORTED_EXTENSIONS
-        ]
+        all_files = [f for f in folder.glob(pattern) if f.is_file()]
+        files = [f for f in all_files if f.suffix.lower() in conv.SUPPORTED_EXTENSIONS]
+        md_skipped = sum(1 for f in all_files if f.suffix.lower() == ".md")
+
+        if md_skipped:
+            noun = "file" if md_skipped == 1 else "files"
+            self._set_status(
+                f"Skipped {md_skipped} {noun} already in Markdown format.",
+                error=True,
+            )
 
         if not files:
             self._set_status(f"No supported files found in {folder.name}", error=True)
@@ -586,7 +615,7 @@ class App(DnDTk):
             try:
                 out_path = conv.convert(src, output_dir=self._output_dir, progress_cb=self._set_status)
                 stats = conv.token_stats(src, out_path)
-                self.after(0, self._add_file_row, out_path, stats)
+                self.after(0, self._add_file_row, out_path, stats, src.suffix.lower())
                 ok += 1
             except Exception as exc:
                 self._set_status(f"Error on {src.name}: {exc}", error=True)
@@ -603,7 +632,7 @@ class App(DnDTk):
     # UI update helpers (always called on main thread via after())
     # ------------------------------------------------------------------
 
-    def _add_file_row(self, md_path: Path, token_stats: dict | None = None):
+    def _add_file_row(self, md_path: Path, token_stats: dict | None = None, src_ext: str | None = None):
         # Remove the "no files" placeholder if present
         if self._empty_label.winfo_exists():
             try:
@@ -611,7 +640,7 @@ class App(DnDTk):
             except Exception:
                 pass
 
-        row = FileRow(self._file_list_frame, md_path, token_stats=token_stats)
+        row = FileRow(self._file_list_frame, md_path, token_stats=token_stats, src_ext=src_ext)
         row.pack(fill="x", pady=(0, 4))
 
     def _set_status(self, msg: str, error: bool = False):
