@@ -279,21 +279,18 @@ class App(DnDTk):
         )
         self._drop_label.pack()
 
-        supported_label = " · ".join(
-            ext.lstrip(".").upper()
-            for ext in sorted(conv.SUPPORTED_EXTENSIONS)
-        )
         self._drop_sub = ctk.CTkLabel(
             self._drop_frame,
-            text=supported_label,
+            text="View supported formats ▾",
             font=FONT_SMALL,
             text_color="gray50",
-            wraplength=480,
+            cursor="hand2",
         )
         self._drop_sub.pack(pady=(2, 0))
+        self._drop_sub.bind("<Button-1>", lambda e: self._show_formats())
 
         # Make the drop zone clickable to browse
-        for widget in (self._drop_frame, self._drop_icon, self._drop_label, self._drop_sub):
+        for widget in (self._drop_frame, self._drop_icon, self._drop_label):
             widget.bind("<Button-1>", lambda e: self._browse_files())
             widget.bind("<Enter>", lambda e: self._drop_frame.configure(fg_color=DROP_HOVER_BG))
             widget.bind("<Leave>", lambda e: self._drop_frame.configure(fg_color=DROP_NORMAL_BG))
@@ -751,6 +748,41 @@ class App(DnDTk):
         row.refresh_badge(use_tiktoken=use_tiktoken)
         row.pack(fill="x", pady=(0, 4))
         self._file_rows.append(row)
+
+    def _show_formats(self):
+        msg = (
+            "Significant token savings (40–80%+)\n"
+            "  These formats carry heavy markup, tags, or binary overhead\n"
+            "  that is stripped during conversion.\n"
+            "\n"
+            "  HTML / HTM   — tags, scripts, nav menus stripped\n"
+            "  EPUB         — XML/CSS/nav boilerplate stripped\n"
+            "  XML          — all markup removed, text preserved\n"
+            "  RTF          — control words and formatting codes stripped\n"
+            "  XLSX / XLS   — cell structure compressed to tables\n"
+            "  PPTX         — slide layout markup removed\n"
+            "  CSV          — reformatted as clean markdown table\n"
+            "\n"
+            "─" * 44 + "\n"
+            "\n"
+            "Structural quality improvement (tokens similar)\n"
+            "  Token count stays about the same, but the LLM reads\n"
+            "  the content more accurately — better tables, headings,\n"
+            "  and chunking for RAG pipelines.\n"
+            "\n"
+            "  PDF          — text extracted, layout noise removed\n"
+            "  DOCX         — heading hierarchy and tables preserved\n"
+            "  ODT          — headings and paragraphs preserved\n"
+            "  JSON         — pretty-printed as fenced code block\n"
+            "\n"
+            "─" * 44 + "\n"
+            "\n"
+            "Image / OCR (savings depend on image content)\n"
+            "\n"
+            "  JPG / JPEG / PNG / TIFF / TIF / BMP\n"
+            "            — Tesseract OCR extracts text from images"
+        )
+        messagebox.showinfo("Supported Formats", msg)
 
     def _show_why(self):
         msg = (
