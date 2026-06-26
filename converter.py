@@ -402,6 +402,8 @@ except Exception:
     def _count_tokens(text: str) -> int:  # type: ignore[misc]
         return len(text) // 4
 
+TIKTOKEN_AVAILABLE: bool = _enc is not None
+
 
 def token_stats(src_text: str, out: Path, src: Path | None = None) -> dict:
     """

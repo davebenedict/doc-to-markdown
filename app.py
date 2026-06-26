@@ -197,7 +197,7 @@ class App(DnDTk):
         self._queue: list[Path] = []
         self._skipped_files: list[str] = []
         self._file_rows: list[FileRow] = []
-        self._use_tiktoken_var = ctk.BooleanVar(value=True)
+        self._use_tiktoken_var = ctk.BooleanVar(value=conv.TIKTOKEN_AVAILABLE)
 
         self._build_ui()
         self._register_dnd()
@@ -387,8 +387,21 @@ class App(DnDTk):
             width=160,
             height=24,
         )
-        self._token_mode_btn.set("tiktoken")
+        if conv.TIKTOKEN_AVAILABLE:
+            self._token_mode_btn.set("tiktoken")
+        else:
+            self._token_mode_btn.set("file size")
+            self._token_mode_btn.configure(state="disabled")
         self._token_mode_btn.pack(side="right")
+
+        if not conv.TIKTOKEN_AVAILABLE:
+            tiktoken_hint = ctk.CTkLabel(
+                files_hdr_row,
+                text="pip install tiktoken for exact counts",
+                font=("Segoe UI", 9),
+                text_color="gray45",
+            )
+            tiktoken_hint.pack(side="right", padx=(0, 8))
 
         # Scrollable file list
         self._file_list_frame = ctk.CTkScrollableFrame(
