@@ -14,3 +14,8 @@ ebooklib==0.18
 striprtf==0.0.26
 odfpy==1.4.1
 pytest==8.2.2
+
+# Optional: Surya OCR (better accuracy than Tesseract, but requires PyTorch)
+# pip install surya-ocr
+# Note: Surya requires PyTorch which is a heavy dependency (~200MB+)
+

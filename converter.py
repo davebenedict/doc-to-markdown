@@ -67,6 +67,8 @@ def _probe_optional_deps():
                                   ".tiff", ".tif", ".bmp"],         "Pillow"),
         (["pytesseract"],        [".jpg", ".jpeg", ".png",
                                   ".tiff", ".tif", ".bmp"],         "pytesseract"),
+        (["surya"],              [".jpg", ".jpeg", ".png",
+                                  ".tiff", ".tif", ".bmp"],         "surya-ocr"),
         (["docx"],               [".docx"],                         "python-docx"),
         (["markdownify"],        [".html", ".htm"],                  "markdownify"),
         (["openpyxl"],           [".xlsx"],                          "openpyxl"),
@@ -199,18 +201,43 @@ def _pdf_text_layer(doc, total_pages: int, progress_cb) -> str:
 
 def _pdf_ocr(path: Path, total_pages: int, progress_cb) -> str:
     pdf2image = _require("pdf2image")
-    pytesseract = _require("pytesseract")
+    Image = _require("Pillow", "PIL.Image")
 
     parts: list[str] = []
 
     images = pdf2image.convert_from_path(str(path))
-    for i, img in enumerate(images):
+
+    # Try Surya OCR first if available (better accuracy)
+    try:
+        from surya.inference import SuryaInferenceManager
+        from surya.recognition import RecognitionPredictor
+        manager = SuryaInferenceManager()
+        recognition_predictor = RecognitionPredictor(manager)
+
         if progress_cb:
-            progress_cb(f"OCR page {i + 1}/{len(images)}…")
-        text = pytesseract.image_to_string(img)
-        parts.append(text.strip())
-        if len(images) > 1:
-            parts.append(f"\n\n---\n<!-- Page {i + 1} -->\n")
+            progress_cb(f"Running Surya OCR on {len(images)} pages…")
+
+        predictions = recognition_predictor(images)
+        for i, pred in enumerate(predictions):
+            if progress_cb:
+                progress_cb(f"OCR page {i + 1}/{len(images)}…")
+            text_lines = []
+            for block in pred.blocks:
+                if hasattr(block, "text"):
+                    text_lines.append(block.text)
+            parts.append("\n".join(text_lines).strip())
+            if len(images) > 1:
+                parts.append(f"\n\n---\n<!-- Page {i + 1} -->\n")
+    except (ImportError, Exception):
+        # Fall back to Tesseract
+        pytesseract = _require("pytesseract")
+        for i, img in enumerate(images):
+            if progress_cb:
+                progress_cb(f"OCR page {i + 1}/{len(images)}…")
+            text = pytesseract.image_to_string(img)
+            parts.append(text.strip())
+            if len(images) > 1:
+                parts.append(f"\n\n---\n<!-- Page {i + 1} -->\n")
 
     return "\n".join(parts)
 
@@ -220,14 +247,31 @@ def _pdf_ocr(path: Path, total_pages: int, progress_cb) -> str:
 # ---------------------------------------------------------------------------
 
 def _convert_image(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
-    pytesseract = _require("pytesseract")
     Image = _require("Pillow", "PIL.Image")
 
     if progress_cb:
         progress_cb(f"Running OCR on {path.name}…")
 
     img = Image.open(str(path))
-    return pytesseract.image_to_string(img).strip()
+
+    # Try Surya OCR first if available (better accuracy)
+    try:
+        from surya.inference import SuryaInferenceManager
+        from surya.recognition import RecognitionPredictor
+        manager = SuryaInferenceManager()
+        recognition_predictor = RecognitionPredictor(manager)
+        predictions = recognition_predictor([img])
+        # Extract text from predictions
+        text_lines = []
+        for pred in predictions:
+            for block in pred.blocks:
+                if hasattr(block, "text"):
+                    text_lines.append(block.text)
+        return "\n".join(text_lines).strip()
+    except (ImportError, Exception):
+        # Fall back to Tesseract
+        pytesseract = _require("pytesseract")
+        return pytesseract.image_to_string(img).strip()
 
 
 # ---------------------------------------------------------------------------
