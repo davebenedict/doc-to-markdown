@@ -222,26 +222,11 @@ def _pdf_ocr(path: Path, total_pages: int, progress_cb) -> str:
 def _convert_image(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
     pytesseract = _require("pytesseract")
     Image = _require("Pillow", "PIL.Image")
-    ImageEnhance = _require("Pillow", "PIL.ImageEnhance")
 
     if progress_cb:
         progress_cb(f"Running OCR on {path.name}…")
 
     img = Image.open(str(path))
-
-    # Preprocess image for better OCR
-    # Convert to grayscale
-    img = img.convert("L")
-
-    # Increase contrast
-    enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(2.0)
-
-    # Apply thresholding to binarize (improves text recognition)
-    # This converts to pure black and white
-    from PIL import Image as PILImage
-    img = PILImage.eval(img, lambda x: 0 if x < 128 else 255)
-
     return pytesseract.image_to_string(img).strip()
 
 
