@@ -431,7 +431,7 @@ class App(DnDTk):
                 files_hdr_row,
                 text="pip install tiktoken for exact counts",
                 font=("Segoe UI", 9),
-                text_color="gray45",
+                text_color="#e5a000",
             )
             tiktoken_hint.pack(side="right", padx=(0, 8))
 
