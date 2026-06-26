@@ -88,17 +88,35 @@ class FileRow(ctk.CTkFrame):
 
         self.configure(fg_color=("gray20", "gray20"))
 
-        icon = ctk.CTkLabel(self, text="📄", font=("Segoe UI Emoji", 14), width=28)
-        icon.pack(side="left", padx=(8, 4), pady=6)
+        # Column layout with fixed widths
+        # Column 0: Icon (30px)
+        # Column 1: Filename (250px with wrap)
+        # Column 2: Extension (50px)
+        # Column 3: Badge (80px)
+        # Column 4: Hint (150px, conditionally shown)
+        # Column 5: Reveal button (70px)
+        # Column 6: Open button (70px)
+
+        # Configure grid weights
+        self.grid_columnconfigure(0, weight=0, minsize=30)
+        self.grid_columnconfigure(1, weight=0, minsize=250)
+        self.grid_columnconfigure(2, weight=0, minsize=50)
+        self.grid_columnconfigure(3, weight=0, minsize=80)
+        self.grid_columnconfigure(4, weight=0, minsize=150)
+        self.grid_columnconfigure(5, weight=0, minsize=70)
+        self.grid_columnconfigure(6, weight=0, minsize=70)
+
+        icon = ctk.CTkLabel(self, text="📄", font=("Segoe UI Emoji", 14))
+        icon.grid(row=0, column=0, padx=(8, 4), pady=6, sticky="w")
 
         name = ctk.CTkLabel(
             self,
             text=md_path.name,
             font=FONT_SMALL,
             anchor="w",
-            wraplength=280,
+            wraplength=240,
         )
-        name.pack(side="left", fill="x", expand=True, padx=4, pady=6)
+        name.grid(row=0, column=1, padx=4, pady=6, sticky="w")
 
         if src_ext:
             ext_label = ctk.CTkLabel(
@@ -110,7 +128,10 @@ class FileRow(ctk.CTkFrame):
                 corner_radius=4,
                 padx=6,
             )
-            ext_label.pack(side="left", padx=(0, 4), pady=6)
+            ext_label.grid(row=0, column=2, padx=(0, 4), pady=6, sticky="w")
+        else:
+            # Placeholder to maintain grid structure
+            ctk.CTkLabel(self, text="").grid(row=0, column=2, padx=(0, 4), pady=6)
 
         if token_stats:
             self._badge = ctk.CTkLabel(
@@ -120,17 +141,22 @@ class FileRow(ctk.CTkFrame):
                 corner_radius=4,
                 padx=6,
             )
-            self._badge.pack(side="left", padx=(0, 6), pady=6)
+            self._badge.grid(row=0, column=3, padx=(0, 6), pady=6, sticky="w")
             self._hint = ctk.CTkLabel(
                 self,
                 text="structure quality improved",
                 font=("Segoe UI", 9),
                 text_color="gray45",
+                wraplength=140,
             )
+            self._hint.grid(row=0, column=4, padx=(0, 6), pady=6, sticky="w")
             self.refresh_badge(use_tiktoken=token_stats.get("tiktoken_available", False))
         else:
             self._badge = None
             self._hint = None
+            # Placeholders to maintain grid structure
+            ctk.CTkLabel(self, text="").grid(row=0, column=3, padx=(0, 6), pady=6)
+            ctk.CTkLabel(self, text="").grid(row=0, column=4, padx=(0, 6), pady=6)
 
         reveal_btn = ctk.CTkButton(
             self,
@@ -142,7 +168,7 @@ class FileRow(ctk.CTkFrame):
             hover_color="gray45",
             command=self._reveal,
         )
-        reveal_btn.pack(side="right", padx=(4, 8), pady=6)
+        reveal_btn.grid(row=0, column=5, padx=(4, 4), pady=6)
 
         open_btn = ctk.CTkButton(
             self,
@@ -152,7 +178,7 @@ class FileRow(ctk.CTkFrame):
             font=FONT_SMALL,
             command=self._open,
         )
-        open_btn.pack(side="right", padx=4, pady=6)
+        open_btn.grid(row=0, column=6, padx=(4, 8), pady=6)
 
     def refresh_badge(self, use_tiktoken: bool):
         if self._badge is None or self._token_stats is None:
