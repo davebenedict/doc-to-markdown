@@ -555,6 +555,7 @@ class App(DnDTk):
     def _run_batch(self, files: list[Path], skipped: list[str] | None = None):
         ok, failed = 0, 0
         total = len(files)
+        details: list[str] = list(skipped) if skipped else []
         try:
             self._drop_frame.configure(border_color="orange")
 
@@ -571,7 +572,7 @@ class App(DnDTk):
                         self.after(0, self._add_file_row, out_path, stats, src.suffix.lower())
                         ok += 1
                     except Exception as exc:
-                        self._set_status(f"Error on {src.name}: {exc}", error=True)
+                        details.append(f"{src.name}  (error: {exc})")
                         failed += 1
 
                 # Drain any files queued while we were working
@@ -579,17 +580,21 @@ class App(DnDTk):
                 self._queue.clear()
                 total += len(files)
 
-            n_skipped = len(skipped) if skipped else 0
-            if total == 1 and not n_skipped:
+            if details:
+                self._skipped_files = details
+            n_details = len(details)
+            if total == 1 and not n_details:
                 if ok:
                     self._set_status("Done — conversion complete")
             else:
                 summary = f"Done — {ok} converted"
                 if failed:
                     summary += f", {failed} failed"
-                if n_skipped:
-                    summary += f", {n_skipped} skipped — click for details."
-                self._set_status(summary, error=bool(failed or n_skipped))
+                if skipped:
+                    summary += f", {len(skipped)} skipped"
+                if n_details:
+                    summary += " — click for details."
+                self._set_status(summary, error=bool(failed or skipped))
         finally:
             self._busy = False
             self.after(0, lambda: self._drop_frame.configure(border_color=ACCENT))
@@ -623,6 +628,7 @@ class App(DnDTk):
         self._drop_frame.configure(border_color="orange")
 
         ok, failed = 0, 0
+        errors: list[str] = []
         for i, src in enumerate(files, 1):
             self._set_status(f"[{i}/{len(files)}] {src.name}…")
             try:
@@ -631,15 +637,20 @@ class App(DnDTk):
                 self.after(0, self._add_file_row, out_path, stats, src.suffix.lower())
                 ok += 1
             except Exception as exc:
-                self._set_status(f"Error on {src.name}: {exc}", error=True)
+                errors.append(f"{src.name}  (error: {exc})")
                 failed += 1
 
+        details = skipped + errors
+        if details:
+            self._skipped_files = details
         self.after(0, lambda: self._drop_frame.configure(border_color=ACCENT))
         summary = f"Folder done — {ok} converted"
         if failed:
             summary += f", {failed} failed"
         if skipped:
-            summary += f", {len(skipped)} skipped — click for details."
+            summary += f", {len(skipped)} skipped"
+        if details:
+            summary += " — click for details."
         self._set_status(summary, error=bool(failed or skipped))
 
 
