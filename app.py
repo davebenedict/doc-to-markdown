@@ -768,8 +768,10 @@ class App(DnDTk):
             return f"  {label:<14}{note}{suffix}"
 
         lines = [
-            "Significant token savings (40–80%+)",
-            "  These formats carry heavy markup or tags stripped on conversion.",
+            "Significant token savings (40–80%+) + smaller file size",
+            "  These formats carry heavy markup, tags, or binary overhead",
+            "  stripped on conversion — often 50–200x smaller as a file.",
+            "  Helps with platform upload limits (Claude 30MB, etc.).",
             "",
             _fmt("HTML / HTM",   [".html", ".htm"],       "— tags, scripts, nav menus stripped"),
             _fmt("EPUB",         [".epub"],                "— XML/CSS/nav boilerplate stripped"),
@@ -833,7 +835,17 @@ class App(DnDTk):
             "\n"
             "✓  Portable and reusable\n"
             "    One Markdown file works in NotebookLM, ChatGPT, Claude,\n"
-            "    LangChain, LlamaIndex — no re-extraction on each use."
+            "    LangChain, LlamaIndex — no re-extraction on each use.\n"
+            "\n"
+            "✓  Bypass file size limits\n"
+            "    A 50MB PDF may contain 48MB of fonts, images, and binary\n"
+            "    encoding — the actual text is often under 1MB. The markdown\n"
+            "    version can be 50–200x smaller as a file, letting you upload\n"
+            "    documents that would otherwise hit platform limits:\n"
+            "      NotebookLM  25M token cap across all sources\n"
+            "      Claude      30MB per file\n"
+            "      ChatGPT     512MB per file (images bloat PDFs fast)\n"
+            "      Self-hosted RAG stacks often cap at 10–20MB per file"
         )
         messagebox.showinfo("Why convert to Markdown?", msg)
 
