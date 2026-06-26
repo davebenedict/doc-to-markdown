@@ -121,22 +121,16 @@ class FileRow(ctk.CTkFrame):
                 padx=6,
             )
             self._badge.pack(side="left", padx=(0, 6), pady=6)
+            self._hint = ctk.CTkLabel(
+                self,
+                text="structure quality improved",
+                font=("Segoe UI", 9),
+                text_color="gray45",
+            )
             self.refresh_badge(use_tiktoken=token_stats.get("tiktoken_available", False))
         else:
             self._badge = None
-
-    def refresh_badge(self, use_tiktoken: bool):
-        if self._badge is None or self._token_stats is None:
-            return
-        stats = self._token_stats
-        if use_tiktoken and stats.get("tiktoken_available"):
-            pct = stats.get("tiktoken_pct")
-            out_tok = stats.get("tiktoken_out", 1)
-        else:
-            pct = stats.get("fallback_pct")
-            out_tok = stats.get("fallback_out", 1)
-        text, fg, tc = _badge_parts(pct, out_tok)
-        self._badge.configure(text=text, fg_color=fg, text_color=tc)
+            self._hint = None
 
         reveal_btn = ctk.CTkButton(
             self,
@@ -159,6 +153,31 @@ class FileRow(ctk.CTkFrame):
             command=self._open,
         )
         open_btn.pack(side="right", padx=4, pady=6)
+
+    def refresh_badge(self, use_tiktoken: bool):
+        if self._badge is None or self._token_stats is None:
+            return
+        stats = self._token_stats
+        if use_tiktoken and stats.get("tiktoken_available"):
+            pct = stats.get("tiktoken_pct")
+            out_tok = stats.get("tiktoken_out", 1)
+        else:
+            pct = stats.get("fallback_pct")
+            out_tok = stats.get("fallback_out", 1)
+        text, fg, tc = _badge_parts(pct, out_tok)
+        self._badge.configure(text=text, fg_color=fg, text_color=tc)
+        if self._hint is not None:
+            show_hint = (
+                use_tiktoken
+                and stats.get("tiktoken_available")
+                and pct is not None
+                and out_tok > 0
+                and abs(pct) <= 10
+            )
+            if show_hint:
+                self._hint.pack(side="left", padx=(0, 4), pady=6)
+            else:
+                self._hint.pack_forget()
 
     def _open(self):
         if sys.platform == "win32":
