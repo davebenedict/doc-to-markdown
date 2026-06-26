@@ -90,21 +90,21 @@ class FileRow(ctk.CTkFrame):
 
         # Column layout with fixed widths
         # Column 0: Icon (30px)
-        # Column 1: Filename (250px with wrap)
-        # Column 2: Extension (50px)
-        # Column 3: Badge (80px)
-        # Column 4: Hint (150px, conditionally shown)
-        # Column 5: Reveal button (70px)
-        # Column 6: Open button (70px)
+        # Column 1: Filename (180px with wrap)
+        # Column 2: Extension (45px)
+        # Column 3: Badge (70px)
+        # Column 4: Hint (120px, conditionally shown)
+        # Column 5: Reveal button (60px)
+        # Column 6: Open button (60px)
 
         # Configure grid weights
         self.grid_columnconfigure(0, weight=0, minsize=30)
-        self.grid_columnconfigure(1, weight=0, minsize=250)
-        self.grid_columnconfigure(2, weight=0, minsize=50)
-        self.grid_columnconfigure(3, weight=0, minsize=80)
-        self.grid_columnconfigure(4, weight=0, minsize=150)
-        self.grid_columnconfigure(5, weight=0, minsize=70)
-        self.grid_columnconfigure(6, weight=0, minsize=70)
+        self.grid_columnconfigure(1, weight=0, minsize=180)
+        self.grid_columnconfigure(2, weight=0, minsize=45)
+        self.grid_columnconfigure(3, weight=0, minsize=70)
+        self.grid_columnconfigure(4, weight=0, minsize=120)
+        self.grid_columnconfigure(5, weight=0, minsize=60)
+        self.grid_columnconfigure(6, weight=0, minsize=60)
 
         icon = ctk.CTkLabel(self, text="📄", font=("Segoe UI Emoji", 14))
         icon.grid(row=0, column=0, padx=(8, 4), pady=6, sticky="w")
@@ -114,7 +114,7 @@ class FileRow(ctk.CTkFrame):
             text=md_path.name,
             font=FONT_SMALL,
             anchor="w",
-            wraplength=240,
+            wraplength=170,
         )
         name.grid(row=0, column=1, padx=4, pady=6, sticky="w")
 
@@ -147,7 +147,7 @@ class FileRow(ctk.CTkFrame):
                 text="structure quality improved",
                 font=("Segoe UI", 9),
                 text_color="gray45",
-                wraplength=140,
+                wraplength=110,
             )
             self._hint.grid(row=0, column=4, padx=(0, 6), pady=6, sticky="w")
             self.refresh_badge(use_tiktoken=token_stats.get("tiktoken_available", False))
