@@ -248,7 +248,8 @@ class App(DnDTk):
         self._register_dnd()
 
         # Set minimum width to ensure FileRow buttons fit on screen
-        self.minsize(700, 500)
+        # Set minimum height to ensure status bar is visible
+        self.minsize(700, 600)
 
     # ------------------------------------------------------------------
     # UI construction
