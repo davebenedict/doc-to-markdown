@@ -201,9 +201,9 @@ class FileRow(ctk.CTkFrame):
                 and abs(pct) <= 10
             )
             if show_hint:
-                self._hint.pack(side="left", padx=(0, 4), pady=6)
+                self._hint.grid(row=0, column=4, padx=(0, 6), pady=6, sticky="w")
             else:
-                self._hint.pack_forget()
+                self._hint.grid_forget()
 
     def _open(self):
         if sys.platform == "win32":
