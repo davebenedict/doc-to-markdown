@@ -18,6 +18,7 @@ Supported formats:
 
 from __future__ import annotations
 
+import csv
 import os
 import re
 from pathlib import Path
@@ -75,14 +76,17 @@ def _probe_optional_deps():
         (["odf"],                [".odt"],                           "odfpy"),
     ]
     for modules, exts, pkg in checks:
+        all_failed = True
         for mod in modules:
             try:
                 importlib.import_module(mod)
+                all_failed = False
             except ImportError:
-                for ext in exts:
-                    if ext not in MISSING_DEPS:
-                        MISSING_DEPS[ext] = pkg
-                break
+                pass
+        if all_failed:
+            for ext in exts:
+                if ext not in MISSING_DEPS:
+                    MISSING_DEPS[ext] = pkg
 
 
 _probe_optional_deps()
@@ -361,8 +365,6 @@ def _rows_to_md(rows: list) -> str:
 # ---------------------------------------------------------------------------
 
 def _convert_csv(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
-    import csv
-
     if progress_cb:
         progress_cb(f"Converting {path.name}…")
 
@@ -473,9 +475,7 @@ def _convert_xml(path: Path, progress_cb: Callable[[str], None] | None = None) -
     except ET.ParseError as exc:
         raise ValueError(f"Invalid XML: {exc}")
 
-    lines: list[str] = []
-
-    def _walk(node: ET.Element, depth: int):
+    def _walk(node: ET.Element, depth: int, lines: list[str]) -> None:
         tag = node.tag.split("}")[-1] if "}" in node.tag else node.tag
         text = (node.text or "").strip()
         prefix = "#" * min(depth + 1, 6)
@@ -484,12 +484,13 @@ def _convert_xml(path: Path, progress_cb: Callable[[str], None] | None = None) -
         if text:
             lines.append(text)
         for child in node:
-            _walk(child, depth + 1)
+            _walk(child, depth + 1, lines)
         tail = (node.tail or "").strip()
         if tail:
             lines.append(tail)
 
-    _walk(root, 0)
+    lines: list[str] = []
+    _walk(root, 0, lines)
     return "\n\n".join(line for line in lines if line)
 
 
@@ -553,7 +554,7 @@ try:
     _enc = _tiktoken.get_encoding("cl100k_base")
     def _count_tokens(text: str) -> int:
         return len(_enc.encode(text))
-except Exception:
+except ImportError:
     _enc = None
     def _count_tokens(text: str) -> int:  # type: ignore[misc]
         return len(text) // 4

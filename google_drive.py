@@ -91,7 +91,7 @@ def _snapshot_downloads(downloads: Path) -> set[Path]:
     """Return the current set of files in the Downloads folder."""
     try:
         return set(downloads.iterdir())
-    except Exception:
+    except (PermissionError, OSError):
         return set()
 
 
@@ -123,6 +123,7 @@ def download(
     if progress_cb:
         progress_cb("Opening export URL in browser — waiting for download…")
 
+    browser_open_time = time.time()
     webbrowser.open(export_url)
 
     # Poll for a new file to appear in Downloads
@@ -139,6 +140,8 @@ def download(
             f for f in new_files
             if f.suffix.lower() not in {".crdownload", ".tmp", ".part"}
             and not f.name.startswith(".")
+            # Only accept files created after we opened the browser
+            and f.stat().st_mtime >= browser_open_time
         }
 
         # Prefer files matching the expected extension to avoid picking up

@@ -287,7 +287,7 @@ class App(DnDTk):
             cursor="hand2",
         )
         self._drop_sub.pack(pady=(2, 0))
-        self._drop_sub.bind("<Button-1>", lambda e: self._show_formats())
+        self._drop_sub.bind("<Button-1>", self._show_formats)
 
         # Make the drop zone clickable to browse
         for widget in (self._drop_frame, self._drop_icon, self._drop_label):
@@ -630,14 +630,16 @@ class App(DnDTk):
 
     def _run_batch(self, files: list[Path], skipped: list[str] | None = None):
         ok, failed = 0, 0
-        total = len(files)
+        processed = 0
         details: list[str] = list(skipped) if skipped else []
+        seen_hints: set[str] = set()
         try:
             self._drop_frame.configure(border_color="orange")
 
             while files:
                 for i, src in enumerate(files, 1):
-                    self._set_status(f"[{ok + failed + 1}/{total}] Converting {src.name}…" if total > 1 else f"Converting {src.name}…")
+                    processed += 1
+                    self._set_status(f"[{processed}/{processed + len(self._queue)}] Converting {src.name}…" if len(files) > 1 or self._queue else f"Converting {src.name}…")
                     try:
                         out_path, src_text = conv.convert(
                             src,
@@ -651,8 +653,9 @@ class App(DnDTk):
                     except ImportError as exc:
                         pkg = conv.MISSING_DEPS.get(src.suffix.lower(), str(exc))
                         hint = f"missing library — pip install {pkg}"
-                        if not any(hint in d for d in details):
+                        if hint not in seen_hints:
                             details.append(f"{src.suffix.lower()} files  ({hint})")
+                            seen_hints.add(hint)
                         failed += 1
                     except Exception as exc:
                         details.append(f"{src.name}  (error: {exc})")
@@ -661,12 +664,11 @@ class App(DnDTk):
                 # Drain any files queued while we were working
                 files = list(self._queue)
                 self._queue.clear()
-                total += len(files)
 
             if details:
                 self._skipped_files = details
             n_details = len(details)
-            if total == 1 and not n_details:
+            if processed == 1 and not n_details:
                 if ok:
                     self._set_status("Done — conversion complete")
             else:
@@ -712,6 +714,7 @@ class App(DnDTk):
 
         ok, failed = 0, 0
         errors: list[str] = []
+        seen_hints: set[str] = set()
         for i, src in enumerate(files, 1):
             self._set_status(f"[{i}/{len(files)}] {src.name}…")
             try:
@@ -722,8 +725,9 @@ class App(DnDTk):
             except ImportError as exc:
                 pkg = conv.MISSING_DEPS.get(src.suffix.lower(), str(exc))
                 hint = f"missing library — pip install {pkg}"
-                if not any(hint in d for d in errors):
+                if hint not in seen_hints:
                     errors.append(f"{src.suffix.lower()} files  ({hint})")
+                    seen_hints.add(hint)
                 failed += 1
             except Exception as exc:
                 errors.append(f"{src.name}  (error: {exc})")
