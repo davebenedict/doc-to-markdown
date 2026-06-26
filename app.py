@@ -8,6 +8,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -18,10 +19,14 @@ from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
+
 from tkinterdnd2 import DND_FILES, Tk as DnDTk
 
 import converter as conv
 import google_drive as gdrive
+
+# Config file for remembering settings
+_CONFIG_FILE = Path.home() / ".doc2md_config.json"
 
 # ---------------------------------------------------------------------------
 # App-level appearance defaults
@@ -244,6 +249,9 @@ class App(DnDTk):
         self._file_rows: list[FileRow] = []
         self._use_tiktoken_var = ctk.BooleanVar(value=conv.TIKTOKEN_AVAILABLE)
 
+        # Load remembered output directory if it exists
+        self._load_config()
+
         self._build_ui()
         self._register_dnd()
 
@@ -368,6 +376,26 @@ class App(DnDTk):
         )
         self._out_dir_label.pack(side="left", fill="x", expand=True, padx=8)
 
+        self._remember_out_dir_var = ctk.BooleanVar(value=False)
+        remember_chk = ctk.CTkCheckBox(
+            out_row,
+            text="Remember",
+            font=("Segoe UI", 10),
+            variable=self._remember_out_dir_var,
+            command=self._on_remember_change,
+        )
+        remember_chk.pack(side="right", padx=(0, 8))
+
+        self._datetime_subfolder_var = ctk.BooleanVar(value=False)
+        datetime_chk = ctk.CTkCheckBox(
+            out_row,
+            text="Date subfolder",
+            font=("Segoe UI", 10),
+            variable=self._datetime_subfolder_var,
+            command=self._on_datetime_change,
+        )
+        datetime_chk.pack(side="right", padx=(0, 8))
+
         browse_btn = ctk.CTkButton(
             out_row,
             text="Browse",
@@ -466,9 +494,18 @@ class App(DnDTk):
             )
             tiktoken_hint.pack(side="right", padx=(0, 8))
 
-        # Column headings row
-        col_header_frame = ctk.CTkFrame(self, fg_color="gray15", corner_radius=8)
-        col_header_frame.pack(fill="x", padx=24, pady=(0, 4))
+        # Scrollable file list
+        self._file_list_frame = ctk.CTkScrollableFrame(
+            self,
+            corner_radius=8,
+            fg_color="gray15",
+            label_text="",
+        )
+        self._file_list_frame.pack(fill="both", expand=True, padx=24, pady=(0, 8))
+
+        # Column headings row - inside scrollable frame for alignment
+        col_header_frame = ctk.CTkFrame(self._file_list_frame, fg_color="gray15", corner_radius=8)
+        col_header_frame.pack(fill="x", pady=(0, 4))
 
         # Configure grid weights to match FileRow
         col_header_frame.grid_columnconfigure(0, weight=0, minsize=30)
@@ -481,35 +518,26 @@ class App(DnDTk):
 
         # Header labels
         ctk.CTkLabel(col_header_frame, text="", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
-            row=0, column=0, padx=(8, 4), pady=8, sticky="w"
+            row=0, column=0, padx=(8, 4), pady=6, sticky="w"
         )
         ctk.CTkLabel(col_header_frame, text="Filename", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
-            row=0, column=1, padx=4, pady=8, sticky="w"
+            row=0, column=1, padx=4, pady=6, sticky="w"
         )
         ctk.CTkLabel(col_header_frame, text="Type", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
-            row=0, column=2, padx=(0, 4), pady=8, sticky="w"
+            row=0, column=2, padx=(0, 4), pady=6, sticky="w"
         )
         ctk.CTkLabel(col_header_frame, text="Tokens", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
-            row=0, column=3, padx=(0, 6), pady=8, sticky="w"
+            row=0, column=3, padx=(0, 6), pady=6, sticky="w"
         )
         ctk.CTkLabel(col_header_frame, text="Note", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
-            row=0, column=4, padx=(0, 6), pady=8, sticky="w"
+            row=0, column=4, padx=(0, 6), pady=6, sticky="w"
         )
         ctk.CTkLabel(col_header_frame, text="Reveal", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
-            row=0, column=5, padx=(4, 4), pady=8, sticky="w"
+            row=0, column=5, padx=(4, 4), pady=6, sticky="w"
         )
         ctk.CTkLabel(col_header_frame, text="Open", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
-            row=0, column=6, padx=(4, 8), pady=8, sticky="w"
+            row=0, column=6, padx=(4, 8), pady=6, sticky="w"
         )
-
-        # Scrollable file list
-        self._file_list_frame = ctk.CTkScrollableFrame(
-            self,
-            corner_radius=8,
-            fg_color="gray15",
-            label_text="",
-        )
-        self._file_list_frame.pack(fill="both", expand=True, padx=24, pady=(0, 8))
 
         self._empty_label = ctk.CTkLabel(
             self._file_list_frame,
@@ -540,6 +568,86 @@ class App(DnDTk):
         self._drop_frame.dnd_bind("<<Drop>>", self._on_drop)
         self._drop_frame.dnd_bind("<<DragEnter>>", lambda e: self._drop_frame.configure(fg_color=DROP_HOVER_BG))
         self._drop_frame.dnd_bind("<<DragLeave>>", lambda e: self._drop_frame.configure(fg_color=DROP_NORMAL_BG))
+
+    # ------------------------------------------------------------------
+    # Config management
+    # ------------------------------------------------------------------
+
+    def _load_config(self):
+        """Load saved output directory from config file."""
+        if _CONFIG_FILE.exists():
+            try:
+                with open(_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                    if config.get("remember_output_dir") and config.get("output_dir"):
+                        self._output_dir = Path(config["output_dir"])
+                        if self._output_dir.exists():
+                            self._remember_out_dir_var.set(True)
+                            # Update the label after UI is built
+                            self.after(100, self._update_out_dir_label)
+                        else:
+                            # Saved directory doesn't exist, clear it
+                            self._output_dir = None
+                    if config.get("datetime_subfolder"):
+                        self._datetime_subfolder_var.set(True)
+            except (json.JSONDecodeError, KeyError, IOError):
+                pass
+
+    def _update_out_dir_label(self):
+        """Update the output directory label after config is loaded."""
+        if self._output_dir:
+            display = str(self._output_dir)
+            if len(display) > 45:
+                display = "…" + display[-43:]
+            self._out_dir_label.configure(text=display, text_color="gray80")
+
+    def _get_output_dir_with_subfolder(self):
+        """Get the output directory, optionally with a datetime subfolder."""
+        if not self._output_dir:
+            return None
+        if not self._datetime_subfolder_var.get():
+            return self._output_dir
+        # Create datetime subfolder
+        from datetime import datetime
+        datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        subfolder = self._output_dir / datetime_str
+        subfolder.mkdir(parents=True, exist_ok=True)
+        return subfolder
+
+    def _save_config(self):
+        """Save output directory to config file if checkbox is checked."""
+        if self._remember_out_dir_var.get() and self._output_dir:
+            config = {
+                "remember_output_dir": True,
+                "output_dir": str(self._output_dir),
+                "datetime_subfolder": self._datetime_subfolder_var.get()
+            }
+            try:
+                with open(_CONFIG_FILE, "w", encoding="utf-8") as f:
+                    json.dump(config, f, indent=2)
+            except IOError:
+                pass
+        elif _CONFIG_FILE.exists():
+            # Remove config file if checkbox is unchecked
+            try:
+                _CONFIG_FILE.unlink()
+            except IOError:
+                pass
+
+    def _on_remember_change(self):
+        """Handle checkbox state change."""
+        if self._remember_out_dir_var.get() and self._output_dir:
+            self._save_config()
+        elif not self._remember_out_dir_var.get() and _CONFIG_FILE.exists():
+            try:
+                _CONFIG_FILE.unlink()
+            except IOError:
+                pass
+
+    def _on_datetime_change(self):
+        """Handle datetime subfolder checkbox state change."""
+        if self._remember_out_dir_var.get():
+            self._save_config()
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -591,6 +699,9 @@ class App(DnDTk):
             if len(display) > 45:
                 display = "…" + display[-43:]
             self._out_dir_label.configure(text=display, text_color="gray80")
+            # Save config if checkbox is checked
+            if self._remember_out_dir_var.get():
+                self._save_config()
 
     def _clear_output_dir(self):
         self._output_dir = None
@@ -611,7 +722,7 @@ class App(DnDTk):
             self._set_status(f"Downloaded — converting {downloaded.name}…")
             out_path, src_text = conv.convert(
                 downloaded,
-                output_dir=self._output_dir or downloaded.parent,
+                output_dir=self._get_output_dir_with_subfolder() or downloaded.parent,
                 progress_cb=self._set_status,
                 return_text=True,
             )
@@ -710,7 +821,7 @@ class App(DnDTk):
                     try:
                         out_path, src_text = conv.convert(
                             src,
-                            output_dir=self._output_dir,
+                            output_dir=self._get_output_dir_with_subfolder(),
                             progress_cb=self._set_status,
                             return_text=True,
                         )
@@ -785,7 +896,7 @@ class App(DnDTk):
         for i, src in enumerate(files, 1):
             self._set_status(f"[{i}/{len(files)}] {src.name}…")
             try:
-                out_path, src_text = conv.convert(src, output_dir=self._output_dir, progress_cb=self._set_status, return_text=True)
+                out_path, src_text = conv.convert(src, output_dir=self._get_output_dir_with_subfolder(), progress_cb=self._set_status, return_text=True)
                 stats = conv.token_stats(src_text, out_path, src=src)
                 self.after(0, self._add_file_row, out_path, stats, src.suffix.lower())
                 ok += 1
