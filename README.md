@@ -7,7 +7,7 @@ A native Windows desktop app that converts documents of many formats into clean 
 ## Download
 
 **Windows Executable (v1.0.0)**
-[Download DocToMarkdown.exe](https://drive.google.com/drive/folders/1tTdgwBa594L2B8p_Wq8doIQ19LHgzp_A?usp=sharing) *(No Python installation required)*
+[Download DocToMarkdown.exe](https://drive.google.com/file/d/1lqGdUWcEciDkeU9_fxH5FDo7XGxEJLVp/view?usp=sharing) *(No Python installation required)*
 
 **Source Code**
 Clone or download from GitHub: https://github.com/davebenedict/doc-to-markdown
