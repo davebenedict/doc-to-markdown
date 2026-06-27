@@ -131,10 +131,18 @@ def _convert_pdf(path: Path, progress_cb: Callable[[str], None] | None = None) -
         sample_text += doc[i].get_text()
 
     if len(sample_text.strip()) >= OCR_TEXT_THRESHOLD:
-        return _pdf_text_layer(doc, total_pages, progress_cb)
+        result = _pdf_text_layer(doc, total_pages, progress_cb)
     else:
         doc.close()
-        return _pdf_ocr(path, total_pages, progress_cb)
+        result = _pdf_ocr(path, total_pages, progress_cb)
+    
+    # Close document if still open
+    try:
+        doc.close()
+    except:
+        pass
+    
+    return result
 
 
 def _pdf_text_layer(doc, total_pages: int, progress_cb) -> str:
