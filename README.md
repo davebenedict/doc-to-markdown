@@ -4,6 +4,16 @@ A native Windows desktop app that converts documents of many formats into clean 
 
 ---
 
+## Download
+
+**Windows Executable (v1.0.0)**
+[Download DocToMarkdown.exe](https://drive.google.com/file/d/PLACEHOLDER/view) *(No Python installation required)*
+
+**Source Code**
+Clone or download from GitHub: https://github.com/davebenedict/doc-to-markdown
+
+---
+
 ## Why convert to Markdown?
 
 - **Better LLM comprehension** — LLMs parse Markdown structure natively; tables, headings, and lists are unambiguous.
