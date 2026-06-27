@@ -143,6 +143,82 @@ class TestTokenCountEndpoint:
         assert data['tokens'] == 0
 
 
+class TestTokenizerIndicator:
+    """Test tokenizer indicator in API response."""
+    
+    @patch('web_app.conv')
+    @patch('web_app.conv.convert')
+    def test_convert_response_includes_tokenizer_tiktoken(self, mock_convert, mock_conv):
+        """Test that convert endpoint includes tokenizer field for tiktoken mode."""
+        # Mock the converter to return test data
+        mock_convert.return_value = (Path('/tmp/test.md'), 'test content')
+        mock_conv.token_stats.return_value = {
+            'tiktoken_available': True,
+            'tiktoken_out': 100,
+            'tiktoken_pct': 50,
+            'fallback_out': 80,
+            'fallback_pct': 40
+        }
+        
+        # Create a test file
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.txt', delete=False) as f:
+            f.write(b'test content')
+            temp_path = f.name
+        
+        try:
+            from io import BytesIO
+            data = {'file': (BytesIO(b'test content'), 'test.txt'), 'token_mode': 'tiktoken'}
+            
+            with app.test_client() as client:
+                response = client.post('/convert', data=data, content_type='multipart/form-data')
+                assert response.status_code == 200
+                
+                # Check that the converted files list includes tokenizer
+                response = client.get('/converted-files')
+                data = json.loads(response.data)
+                if len(data) > 0:
+                    assert 'tokenizer' in data[-1]
+                    assert data[-1]['tokenizer'] == 'tiktoken'
+        finally:
+            os.unlink(temp_path)
+    
+    @patch('web_app.conv')
+    @patch('web_app.conv.convert')
+    def test_convert_response_includes_tokenizer_filesize(self, mock_convert, mock_conv):
+        """Test that convert endpoint includes tokenizer field for file size mode."""
+        # Mock the converter to return test data
+        mock_convert.return_value = (Path('/tmp/test.md'), 'test content')
+        mock_conv.token_stats.return_value = {
+            'tiktoken_available': True,
+            'tiktoken_out': 100,
+            'tiktoken_pct': 50,
+            'fallback_out': 80,
+            'fallback_pct': 40
+        }
+        
+        # Create a test file
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.txt', delete=False) as f:
+            f.write(b'test content')
+            temp_path = f.name
+        
+        try:
+            from io import BytesIO
+            data = {'file': (BytesIO(b'test content'), 'test.txt'), 'token_mode': 'filesize'}
+            
+            with app.test_client() as client:
+                response = client.post('/convert', data=data, content_type='multipart/form-data')
+                assert response.status_code == 200
+                
+                # Check that the converted files list includes tokenizer
+                response = client.get('/converted-files')
+                data = json.loads(response.data)
+                if len(data) > 0:
+                    assert 'tokenizer' in data[-1]
+                    assert data[-1]['tokenizer'] == 'file size'
+        finally:
+            os.unlink(temp_path)
+
+
 class TestConfigFile:
     """Test config file operations."""
     

@@ -211,6 +211,80 @@ class TestConfigFile:
 
 
 # ---------------------------------------------------------------------------
+# Tokenizer mode storage
+# ---------------------------------------------------------------------------
+
+class TestTokenizerModeStorage:
+    def test_filerow_accepts_tokenizer_mode(self):
+        """Verify FileRow accepts tokenizer_mode parameter."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        assert "tokenizer_mode: str" in content, \
+            "FileRow should accept tokenizer_mode parameter"
+    
+    def test_filerow_stores_tokenizer_mode(self):
+        """Verify FileRow stores tokenizer_mode as instance variable."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        assert "self._tokenizer_mode = tokenizer_mode" in content, \
+            "FileRow should store tokenizer_mode as instance variable"
+    
+    def test_refresh_badge_uses_stored_mode(self):
+        """Verify refresh_badge uses stored tokenizer_mode instead of global mode."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        assert "self._tokenizer_mode" in content and "refresh_badge" in content, \
+            "refresh_badge should use stored tokenizer_mode"
+
+
+# ---------------------------------------------------------------------------
+# Detailed stats display
+# ---------------------------------------------------------------------------
+
+class TestDetailedStatsDisplay:
+    def test_filerow_has_tokens_label(self):
+        """Verify FileRow has a tokens label for displaying token count."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        assert "_tokens_label" in content, \
+            "FileRow should have a tokens label"
+    
+    def test_filerow_has_original_size_label(self):
+        """Verify FileRow has an original size label."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        assert "_orig_label" in content, \
+            "FileRow should have an original size label"
+    
+    def test_filerow_has_converted_size_label(self):
+        """Verify FileRow has a converted size label."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        assert "_conv_label" in content, \
+            "FileRow should have a converted size label"
+    
+    def test_filerow_has_tokenizer_label(self):
+        """Verify FileRow has a tokenizer label."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        assert "_tokenizer_label" in content, \
+            "FileRow should have a tokenizer label"
+
+
+# ---------------------------------------------------------------------------
+# Window width
+# ---------------------------------------------------------------------------
+
+class TestWindowWidth:
+    def test_window_width_increased(self):
+        """Verify window width was increased to accommodate all columns."""
+        app_path = Path(__file__).parent.parent / "app.py"
+        content = app_path.read_text(encoding="utf-8")
+        assert "1000x680" in content, \
+            "Window width should be 1000px to accommodate all columns"
+
+
+# ---------------------------------------------------------------------------
 # Datetime subfolder functionality
 # ---------------------------------------------------------------------------
 
