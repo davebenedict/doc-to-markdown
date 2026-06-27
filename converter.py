@@ -125,28 +125,16 @@ def _convert_pdf(path: Path, progress_cb: Callable[[str], None] | None = None) -
     doc = fitz.open(str(path))
     total_pages = len(doc)
 
-    # Check if document is encrypted
-    if doc.is_encrypted:
-        doc.close()
-        raise ValueError("PDF is password-protected and cannot be converted")
-
     # Probe first few pages for text to decide strategy
     sample_text = ""
     for i in range(min(3, total_pages)):
         sample_text += doc[i].get_text()
 
-    # Close document before OCR path (needs to reopen)
-    doc.close()
-
     if len(sample_text.strip()) >= OCR_TEXT_THRESHOLD:
-        # Reopen document for text extraction
-        doc = fitz.open(str(path))
-        result = _pdf_text_layer(doc, total_pages, progress_cb)
-        doc.close()
+        return _pdf_text_layer(doc, total_pages, progress_cb)
     else:
-        result = _pdf_ocr(path, total_pages, progress_cb)
-    
-    return result
+        doc.close()
+        return _pdf_ocr(path, total_pages, progress_cb)
 
 
 def _pdf_text_layer(doc, total_pages: int, progress_cb) -> str:
