@@ -6,16 +6,20 @@ A native Windows desktop app that converts documents of many formats into clean 
 
 ## Download
 
-**Windows Executable (v1.0.0)**
+**Windows Desktop App (Recommended for Windows)**
 [Download DocToMarkdown.exe](https://drive.google.com/file/d/1lqGdUWcEciDkeU9_fxH5FDo7XGxEJLVp/view?usp=sharing) *(No Python installation required)*
 
+The Windows desktop app has full drag-and-drop UI and is the recommended option for Windows users.
+
 **Web App (Cross-Platform)**
-Run the Flask web app for use on Mac, Linux, or Windows in a browser:
+For Mac, Linux, or Windows users who prefer a browser-based interface:
 ```bash
 pip install Flask
 python web_app.py
 ```
 Then open http://localhost:5000 in your browser.
+
+The web app provides the same conversion functionality in a browser interface.
 
 **Source Code**
 Clone or download from GitHub: https://github.com/davebenedict/doc-to-markdown
