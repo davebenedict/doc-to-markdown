@@ -135,11 +135,15 @@ def _convert_pdf(path: Path, progress_cb: Callable[[str], None] | None = None) -
     for i in range(min(3, total_pages)):
         sample_text += doc[i].get_text()
 
+    # Close document before OCR path (needs to reopen)
+    doc.close()
+
     if len(sample_text.strip()) >= OCR_TEXT_THRESHOLD:
+        # Reopen document for text extraction
+        doc = fitz.open(str(path))
         result = _pdf_text_layer(doc, total_pages, progress_cb)
         doc.close()
     else:
-        doc.close()
         result = _pdf_ocr(path, total_pages, progress_cb)
     
     return result

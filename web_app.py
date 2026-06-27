@@ -18,24 +18,21 @@ def index():
 def convert_file():
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
-    
+
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
-    
+
     # Save uploaded file to temp directory
     with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
         file.save(tmp.name)
         tmp_path = Path(tmp.name)
-    
+
+    output_path = None
     try:
         # Convert the file
         output_path = conv.convert(tmp_path)
-        
-        # Read the converted content
-        with open(output_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
+
         # Return as downloadable file
         return send_file(
             output_path,
@@ -49,9 +46,11 @@ def convert_file():
         print(f"Conversion error: {error_trace}")
         return jsonify({'error': str(e), 'details': error_trace}), 500
     finally:
-        # Clean up temp file
+        # Clean up temp files
         if tmp_path.exists():
             tmp_path.unlink()
+        if output_path and output_path.exists():
+            output_path.unlink()
 
 @app.route('/supported-formats')
 def supported_formats():
