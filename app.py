@@ -9,6 +9,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -72,6 +73,15 @@ ACCEPTED_TYPES = _build_accepted_types()
 # FileRow widget — one converted file entry
 # ---------------------------------------------------------------------------
 
+def _format_size(bytes: int) -> str:
+    """Format bytes to human-readable size."""
+    if bytes == 0:
+        return "0 B"
+    k = 1024
+    sizes = ["B", "KB", "MB", "GB"]
+    i = int(math.log(bytes, k))
+    return f"{bytes / (k ** i):.1f} {sizes[i]}"
+
 def _badge_parts(pct: int | None, out_tokens: int) -> tuple[str, str, str]:
     """Return (text, fg_color, text_color) for a token savings badge."""
     if out_tokens == 0:
@@ -86,30 +96,38 @@ def _badge_parts(pct: int | None, out_tokens: int) -> tuple[str, str, str]:
 
 
 class FileRow(ctk.CTkFrame):
-    def __init__(self, master, md_path: Path, token_stats: dict | None = None, src_ext: str | None = None, **kwargs):
+    def __init__(self, master, md_path: Path, token_stats: dict | None = None, src_ext: str | None = None, original_size: int = 0, tokenizer_mode: str = "file size", **kwargs):
         super().__init__(master, corner_radius=6, **kwargs)
         self.md_path = md_path
         self._token_stats = token_stats
+        self._original_size = original_size
+        self._tokenizer_mode = tokenizer_mode
 
         self.configure(fg_color=("gray20", "gray20"))
 
         # Column layout with fixed widths
         # Column 0: Icon (30px)
-        # Column 1: Filename (180px with wrap)
+        # Column 1: Filename (200px with wrap)
         # Column 2: Extension (45px)
-        # Column 3: Badge (70px)
-        # Column 4: Hint (120px, conditionally shown)
-        # Column 5: Reveal button (60px)
-        # Column 6: Open button (60px)
+        # Column 3: Tokens (70px)
+        # Column 4: Original size (90px)
+        # Column 5: Converted size (90px)
+        # Column 6: Savings (90px)
+        # Column 7: Tokenizer (80px)
+        # Column 8: Reveal button (70px)
+        # Column 9: Open button (70px)
 
         # Configure grid weights
         self.grid_columnconfigure(0, weight=0, minsize=30)
-        self.grid_columnconfigure(1, weight=0, minsize=180)
+        self.grid_columnconfigure(1, weight=0, minsize=200)
         self.grid_columnconfigure(2, weight=0, minsize=45)
         self.grid_columnconfigure(3, weight=0, minsize=70)
-        self.grid_columnconfigure(4, weight=0, minsize=120)
-        self.grid_columnconfigure(5, weight=0, minsize=60)
-        self.grid_columnconfigure(6, weight=0, minsize=60)
+        self.grid_columnconfigure(4, weight=0, minsize=90)
+        self.grid_columnconfigure(5, weight=0, minsize=90)
+        self.grid_columnconfigure(6, weight=0, minsize=90)
+        self.grid_columnconfigure(7, weight=0, minsize=80)
+        self.grid_columnconfigure(8, weight=0, minsize=70)
+        self.grid_columnconfigure(9, weight=0, minsize=70)
 
         icon = ctk.CTkLabel(self, text="📄", font=("Segoe UI Emoji", 14))
         icon.grid(row=0, column=0, padx=(8, 4), pady=6, sticky="w")
@@ -139,6 +157,37 @@ class FileRow(ctk.CTkFrame):
             ctk.CTkLabel(self, text="").grid(row=0, column=2, padx=(0, 4), pady=6)
 
         if token_stats:
+            # Tokens
+            tokens_label = ctk.CTkLabel(
+                self,
+                text="",
+                font=("Segoe UI", 10),
+                text_color="gray70",
+            )
+            tokens_label.grid(row=0, column=3, padx=(0, 4), pady=6, sticky="w")
+            self._tokens_label = tokens_label
+
+            # Original size
+            orig_label = ctk.CTkLabel(
+                self,
+                text="",
+                font=("Segoe UI", 10),
+                text_color="gray70",
+            )
+            orig_label.grid(row=0, column=4, padx=(0, 4), pady=6, sticky="w")
+            self._orig_label = orig_label
+
+            # Converted size
+            conv_label = ctk.CTkLabel(
+                self,
+                text="",
+                font=("Segoe UI", 10),
+                text_color="gray70",
+            )
+            conv_label.grid(row=0, column=5, padx=(0, 4), pady=6, sticky="w")
+            self._conv_label = conv_label
+
+            # Savings badge
             self._badge = ctk.CTkLabel(
                 self,
                 text="",
@@ -146,22 +195,32 @@ class FileRow(ctk.CTkFrame):
                 corner_radius=4,
                 padx=6,
             )
-            self._badge.grid(row=0, column=3, padx=(0, 6), pady=6, sticky="w")
-            self._hint = ctk.CTkLabel(
+            self._badge.grid(row=0, column=6, padx=(0, 6), pady=6, sticky="w")
+            
+            # Tokenizer indicator
+            tokenizer_label = ctk.CTkLabel(
                 self,
-                text="structure quality improved",
+                text="",
                 font=("Segoe UI", 9),
-                text_color="gray45",
-                wraplength=110,
+                text_color="gray60",
             )
-            self._hint.grid(row=0, column=4, padx=(0, 6), pady=6, sticky="w")
+            tokenizer_label.grid(row=0, column=7, padx=(0, 4), pady=6, sticky="w")
+            self._tokenizer_label = tokenizer_label
+            self._hint = None
             self.refresh_badge(use_tiktoken=token_stats.get("tiktoken_available", False))
         else:
-            self._badge = None
-            self._hint = None
             # Placeholders to maintain grid structure
-            ctk.CTkLabel(self, text="").grid(row=0, column=3, padx=(0, 6), pady=6)
-            ctk.CTkLabel(self, text="").grid(row=0, column=4, padx=(0, 6), pady=6)
+            ctk.CTkLabel(self, text="").grid(row=0, column=3, padx=(0, 4), pady=6)
+            ctk.CTkLabel(self, text="").grid(row=0, column=4, padx=(0, 4), pady=6)
+            ctk.CTkLabel(self, text="").grid(row=0, column=5, padx=(0, 4), pady=6)
+            ctk.CTkLabel(self, text="").grid(row=0, column=6, padx=(0, 6), pady=6)
+            ctk.CTkLabel(self, text="").grid(row=0, column=7, padx=(0, 4), pady=6)
+            self._badge = None
+            self._tokens_label = None
+            self._orig_label = None
+            self._conv_label = None
+            self._tokenizer_label = None
+            self._hint = None
 
         reveal_btn = ctk.CTkButton(
             self,
@@ -173,7 +232,7 @@ class FileRow(ctk.CTkFrame):
             hover_color="gray45",
             command=self._reveal,
         )
-        reveal_btn.grid(row=0, column=5, padx=(4, 4), pady=6)
+        reveal_btn.grid(row=0, column=8, padx=(4, 4), pady=6)
 
         open_btn = ctk.CTkButton(
             self,
@@ -183,32 +242,44 @@ class FileRow(ctk.CTkFrame):
             font=FONT_SMALL,
             command=self._open,
         )
-        open_btn.grid(row=0, column=6, padx=(4, 8), pady=6)
+        open_btn.grid(row=0, column=9, padx=(4, 8), pady=6)
 
     def refresh_badge(self, use_tiktoken: bool):
         if self._badge is None or self._token_stats is None:
             return
         stats = self._token_stats
-        if use_tiktoken and stats.get("tiktoken_available"):
+        # Use the stored tokenizer mode instead of the global mode
+        if self._tokenizer_mode == "tiktoken" and stats.get("tiktoken_available"):
             pct = stats.get("tiktoken_pct")
             out_tok = stats.get("tiktoken_out", 1)
+            tokenizer = "tiktoken"
         else:
             pct = stats.get("fallback_pct")
             out_tok = stats.get("fallback_out", 1)
+            tokenizer = "file size"
+        
+        # Update badge with savings percentage
         text, fg, tc = _badge_parts(pct, out_tok)
         self._badge.configure(text=text, fg_color=fg, text_color=tc)
-        if self._hint is not None:
-            show_hint = (
-                use_tiktoken
-                and stats.get("tiktoken_available")
-                and pct is not None
-                and out_tok > 0
-                and abs(pct) <= 10
-            )
-            if show_hint:
-                self._hint.grid(row=0, column=4, padx=(0, 6), pady=6, sticky="w")
-            else:
-                self._hint.grid_forget()
+        
+        # Update tokens label
+        if self._tokens_label:
+            self._tokens_label.configure(text=str(out_tok))
+        
+        # Update tokenizer indicator
+        if self._tokenizer_label:
+            self._tokenizer_label.configure(text=tokenizer)
+        
+        # Update file sizes
+        if self._orig_label and self._conv_label:
+            # Get converted file size from the actual file
+            conv_size = self.md_path.stat().st_size if self.md_path.exists() else 0
+            
+            # Use the original size that was passed in
+            orig_size = self._original_size if self._original_size > 0 else conv_size
+            
+            self._orig_label.configure(text=_format_size(orig_size))
+            self._conv_label.configure(text=_format_size(conv_size))
 
     def _open(self):
         if sys.platform == "win32":
@@ -235,7 +306,7 @@ class App(DnDTk):
     def __init__(self):
         super().__init__()
         self.title("Doc \u2192 Markdown Converter")
-        self.geometry("560x680")
+        self.geometry("1000x680")
         self.minsize(480, 560)
         self.configure(bg="#1a1a1a")
 
@@ -509,12 +580,15 @@ class App(DnDTk):
 
         # Configure grid weights to match FileRow
         col_header_frame.grid_columnconfigure(0, weight=0, minsize=30)
-        col_header_frame.grid_columnconfigure(1, weight=0, minsize=180)
+        col_header_frame.grid_columnconfigure(1, weight=0, minsize=200)
         col_header_frame.grid_columnconfigure(2, weight=0, minsize=45)
         col_header_frame.grid_columnconfigure(3, weight=0, minsize=70)
-        col_header_frame.grid_columnconfigure(4, weight=0, minsize=120)
-        col_header_frame.grid_columnconfigure(5, weight=0, minsize=60)
-        col_header_frame.grid_columnconfigure(6, weight=0, minsize=60)
+        col_header_frame.grid_columnconfigure(4, weight=0, minsize=90)
+        col_header_frame.grid_columnconfigure(5, weight=0, minsize=90)
+        col_header_frame.grid_columnconfigure(6, weight=0, minsize=90)
+        col_header_frame.grid_columnconfigure(7, weight=0, minsize=80)
+        col_header_frame.grid_columnconfigure(8, weight=0, minsize=70)
+        col_header_frame.grid_columnconfigure(9, weight=0, minsize=70)
 
         # Header labels
         ctk.CTkLabel(col_header_frame, text="", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
@@ -527,16 +601,25 @@ class App(DnDTk):
             row=0, column=2, padx=(0, 4), pady=6, sticky="w"
         )
         ctk.CTkLabel(col_header_frame, text="Tokens", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
-            row=0, column=3, padx=(0, 6), pady=6, sticky="w"
+            row=0, column=3, padx=(0, 4), pady=6, sticky="w"
         )
-        ctk.CTkLabel(col_header_frame, text="Note", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
-            row=0, column=4, padx=(0, 6), pady=6, sticky="w"
+        ctk.CTkLabel(col_header_frame, text="Original", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
+            row=0, column=4, padx=(0, 4), pady=6, sticky="w"
+        )
+        ctk.CTkLabel(col_header_frame, text="Converted", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
+            row=0, column=5, padx=(0, 4), pady=6, sticky="w"
+        )
+        ctk.CTkLabel(col_header_frame, text="Savings", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
+            row=0, column=6, padx=(0, 6), pady=6, sticky="w"
+        )
+        ctk.CTkLabel(col_header_frame, text="Tokenizer", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
+            row=0, column=7, padx=(0, 4), pady=6, sticky="w"
         )
         ctk.CTkLabel(col_header_frame, text="Reveal", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
-            row=0, column=5, padx=(4, 4), pady=6, sticky="w"
+            row=0, column=8, padx=(0, 4), pady=6, sticky="w"
         )
         ctk.CTkLabel(col_header_frame, text="Open", font=("Segoe UI", 10, "bold"), text_color="gray50").grid(
-            row=0, column=6, padx=(4, 8), pady=6, sticky="w"
+            row=0, column=9, padx=(0, 8), pady=6, sticky="w"
         )
 
         self._empty_label = ctk.CTkLabel(
@@ -727,7 +810,9 @@ class App(DnDTk):
                 return_text=True,
             )
             stats = conv.token_stats(src_text, out_path, src=downloaded)
-            self.after(0, self._add_file_row, out_path, stats, downloaded.suffix.lower())
+            original_size = downloaded.stat().st_size if downloaded.exists() else 0
+            tokenizer_mode = "tiktoken" if self._use_tiktoken_var.get() and stats.get("tiktoken_available") else "file size"
+            self.after(0, self._add_file_row, out_path, stats, downloaded.suffix.lower(), original_size, tokenizer_mode)
             self._set_status(f"Done — {out_path.name}")
         except TimeoutError as exc:
             self._set_status("Timed out waiting for download.", error=True)
@@ -829,7 +914,9 @@ class App(DnDTk):
                             return_text=True,
                         )
                         stats = conv.token_stats(src_text, out_path, src=src)
-                        self.after(0, self._add_file_row, out_path, stats, src.suffix.lower())
+                        original_size = src.stat().st_size if src.exists() else 0
+                        tokenizer_mode = "tiktoken" if self._use_tiktoken_var.get() and stats.get("tiktoken_available") else "file size"
+                        self.after(0, self._add_file_row, out_path, stats, src.suffix.lower(), original_size, tokenizer_mode)
                         ok += 1
                     except ImportError as exc:
                         pkg = conv.MISSING_DEPS.get(src.suffix.lower(), str(exc))
@@ -904,7 +991,9 @@ class App(DnDTk):
             try:
                 out_path, src_text = conv.convert(src, output_dir=output_dir, progress_cb=self._set_status, return_text=True)
                 stats = conv.token_stats(src_text, out_path, src=src)
-                self.after(0, self._add_file_row, out_path, stats, src.suffix.lower())
+                original_size = src.stat().st_size if src.exists() else 0
+                tokenizer_mode = "tiktoken" if self._use_tiktoken_var.get() and stats.get("tiktoken_available") else "file size"
+                self.after(0, self._add_file_row, out_path, stats, src.suffix.lower(), original_size, tokenizer_mode)
                 ok += 1
             except ImportError as exc:
                 pkg = conv.MISSING_DEPS.get(src.suffix.lower(), str(exc))
@@ -935,7 +1024,7 @@ class App(DnDTk):
     # UI update helpers (always called on main thread via after())
     # ------------------------------------------------------------------
 
-    def _add_file_row(self, md_path: Path, token_stats: dict | None = None, src_ext: str | None = None):
+    def _add_file_row(self, md_path: Path, token_stats: dict | None = None, src_ext: str | None = None, original_size: int = 0, tokenizer_mode: str = "file size"):
         # Remove the "no files" placeholder if present
         if self._empty_label.winfo_exists():
             try:
@@ -944,7 +1033,7 @@ class App(DnDTk):
                 pass
 
         use_tiktoken = self._use_tiktoken_var.get()
-        row = FileRow(self._file_list_frame, md_path, token_stats=token_stats, src_ext=src_ext)
+        row = FileRow(self._file_list_frame, md_path, token_stats=token_stats, src_ext=src_ext, original_size=original_size, tokenizer_mode=tokenizer_mode)
         row.refresh_badge(use_tiktoken=use_tiktoken)
         row.pack(fill="x", pady=(0, 4))
         self._file_rows.append(row)
