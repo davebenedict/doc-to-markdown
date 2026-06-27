@@ -23,10 +23,10 @@ def convert_file():
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
 
-    # Save uploaded file to temp directory
-    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
-        file.save(tmp.name)
-        tmp_path = Path(tmp.name)
+    # Create temp directory and save file
+    temp_dir = Path(tempfile.mkdtemp())
+    tmp_path = temp_dir / file.filename
+    file.save(str(tmp_path))
 
     output_path = None
     try:
@@ -34,23 +34,44 @@ def convert_file():
         output_path = conv.convert(tmp_path)
 
         # Return as downloadable file
-        return send_file(
+        response = send_file(
             output_path,
             as_attachment=True,
             download_name=tmp_path.stem + '.md',
             mimetype='text/markdown'
         )
+
+        # Clean up after response is sent
+        @response.call_on_close
+        def cleanup():
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+                if output_path and output_path.exists():
+                    output_path.unlink()
+                if temp_dir.exists():
+                    temp_dir.rmdir()
+            except:
+                pass
+
+        return response
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
         print(f"Conversion error: {error_trace}")
+
+        # Clean up on error
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            if output_path and output_path.exists():
+                output_path.unlink()
+            if temp_dir.exists():
+                temp_dir.rmdir()
+        except:
+            pass
+
         return jsonify({'error': str(e), 'details': error_trace}), 500
-    finally:
-        # Clean up temp files
-        if tmp_path.exists():
-            tmp_path.unlink()
-        if output_path and output_path.exists():
-            output_path.unlink()
 
 @app.route('/supported-formats')
 def supported_formats():
