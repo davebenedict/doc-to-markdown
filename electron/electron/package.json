@@ -1,6 +1,6 @@
 {
   "name": "doc2md-electron",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "Doc to Markdown Converter - Cross-platform Electron version",
   "main": "main.js",
   "scripts": {
@@ -37,6 +37,7 @@
       }
     ],
     "win": {
+      "icon": "app-icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -48,11 +49,19 @@
         }
       ]
     },
+    "nsis": {
+      "createDesktopShortcut": true,
+      "shortcutName": "Doc to Markdown",
+      "installerIcon": "app-icon.ico",
+      "uninstallerIcon": "app-icon.ico"
+    },
     "mac": {
+      "icon": "app-icon.icns",
       "target": "dmg",
       "category": "public.app-category.productivity"
     },
     "linux": {
+      "icon": "app-icon.png",
       "target": [
         "AppImage",
         "deb"

@@ -17,6 +17,7 @@ function createWindow() {
             contextIsolation: true,
             preload: path.join(__dirname, 'preload.js')
         },
+        icon: path.join(__dirname, process.platform === 'win32' ? 'app-icon.ico' : 'app-icon.png'),
         title: 'Doc to Markdown Converter v2.0'
     });
 
