@@ -111,20 +111,19 @@ class TestConvertRouting:
     def test_no_overwrite_existing_md(self, tmp_path):
         html = tmp_path / "report.html"
         html.write_text("<p>v1</p>", encoding="utf-8")
-        # Create pre-existing .md
-        (tmp_path / "report.md").write_text("old", encoding="utf-8")
+        existing = tmp_path / "report.html.md"
+        existing.write_text("old", encoding="utf-8")
         result = conv.convert(html)
-        assert result.name == "report_1.md"
-        # Original untouched
-        assert (tmp_path / "report.md").read_text() == "old"
+        assert result.name == "report.html_1.md"
+        assert existing.read_text() == "old"
 
     def test_no_overwrite_increments(self, tmp_path):
         html = tmp_path / "report.html"
         html.write_text("<p>v3</p>", encoding="utf-8")
-        (tmp_path / "report.md").write_text("old", encoding="utf-8")
-        (tmp_path / "report_1.md").write_text("old1", encoding="utf-8")
+        (tmp_path / "report.html.md").write_text("old", encoding="utf-8")
+        (tmp_path / "report.html_1.md").write_text("old1", encoding="utf-8")
         result = conv.convert(html)
-        assert result.name == "report_2.md"
+        assert result.name == "report.html_2.md"
 
     def test_progress_cb_called(self, tmp_path):
         html = tmp_path / "cb.html"

@@ -3,24 +3,23 @@ Unit tests for Flask web backend
 """
 import pytest
 import json
-import tempfile
 from io import BytesIO
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import os
-
-# Set up test environment
-os.environ['TESTING'] = 'true'
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / 'python'))
 
-from web_app import app, _CONFIG_FILE, _converted_files
+from web_app import app, _CONFIG_FILE
 
 
 @pytest.fixture
-def client():
-    """Create a test client for the Flask app."""
+def client(tmp_path, monkeypatch):
+    import web_app
+
+    config_file = tmp_path / ".doc2md_config.json"
+    config_file.write_text(json.dumps({"output_dir": str(tmp_path / "converted")}), encoding="utf-8")
+    monkeypatch.setattr(web_app, "_CONFIG_FILE", config_file)
+    monkeypatch.setattr(web_app, "_converted_files", [])
     app.config['TESTING'] = True
     with app.test_client() as client:
         yield client
@@ -39,12 +38,10 @@ def sample_config():
 class TestConfigEndpoints:
     """Test configuration endpoints."""
     
-    def test_get_config_empty(self, client):
-        """Test getting config when none exists."""
+    def test_get_config_returns_configured_output_folder(self, client, tmp_path):
         response = client.get('/config')
         assert response.status_code == 200
-        data = json.loads(response.data)
-        assert isinstance(data, dict)
+        assert response.get_json()['output_dir'] == str(tmp_path / 'converted')
     
     def test_save_config(self, client, sample_config):
         """Test saving configuration."""
@@ -74,31 +71,18 @@ class TestConvertedFilesEndpoint:
     """Test converted files endpoint."""
     
     def test_get_converted_files_empty(self, client):
-        """Test getting converted files when none exist."""
-        # Clear the global list
-        global _converted_files
-        _converted_files = []
-        
         response = client.get('/converted-files')
         assert response.status_code == 200
-        data = json.loads(response.data)
-        assert isinstance(data, list)
-        assert len(data) == 0
+        assert response.get_json() == []
     
     def test_clear_converted_files(self, client):
-        """Test clearing converted files list."""
-        # Add a file to the list
-        global _converted_files
-        _converted_files = [{'name': 'test.md', 'path': '/tmp/test.md'}]
-        
-        # Clear the list
+        import web_app
+
+        web_app._converted_files.append({'name': 'test.md', 'path': '/tmp/test.md'})
         response = client.delete('/converted-files')
         assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data['success'] == True
-        
-        # Verify it's cleared
-        assert len(_converted_files) == 0
+        assert response.get_json()['success'] is True
+        assert web_app._converted_files == []
 
 
 class TestSupportedFormatsEndpoint:
@@ -116,108 +100,47 @@ class TestSupportedFormatsEndpoint:
 
 
 class TestTokenCountEndpoint:
-    """Test token count endpoint."""
-    
     def test_token_count_approx(self, client):
-        """Test token count with approximate method."""
-        response = client.post('/token-count',
-                               data=json.dumps({
-                                   'content': 'Hello world',
-                                   'use_tiktoken': False
-                               }),
-                               content_type='application/json')
+        response = client.post('/token-count', json={'content': 'Hello world', 'use_tiktoken': False})
         assert response.status_code == 200
-        data = json.loads(response.data)
-        assert 'tokens' in data
-        assert data['tokens'] > 0
-    
+        assert response.get_json()['tokens'] == len('Hello world') // 4
+
     def test_token_count_empty_content(self, client):
-        """Test token count with empty content."""
-        response = client.post('/token-count',
-                               data=json.dumps({
-                                   'content': '',
-                                   'use_tiktoken': False
-                               }),
-                               content_type='application/json')
+        response = client.post('/token-count', json={'content': '', 'use_tiktoken': False})
         assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data['tokens'] == 0
+        assert response.get_json()['tokens'] == 0
+
+    def test_missing_content_is_rejected(self, client):
+        response = client.post('/token-count', json={})
+        assert response.status_code == 400
+
+    def test_tiktoken_count(self, client):
+        import web_app
+        if not web_app.conv.TIKTOKEN_AVAILABLE:
+            pytest.skip('tiktoken is not installed')
+        text = 'Hello world'
+        response = client.post('/token-count', json={'content': text, 'use_tiktoken': True})
+        assert response.status_code == 200
+        assert response.get_json()['tokens'] == web_app.conv._count_tokens(text)
 
 
 class TestTokenizerIndicator:
-    """Test tokenizer indicator in API response."""
-    
-    @patch('web_app.conv')
-    @patch('web_app.conv.convert')
-    def test_convert_response_includes_tokenizer_tiktoken(self, mock_convert, mock_conv):
-        """Test that convert endpoint includes tokenizer field for tiktoken mode."""
-        # Mock the converter to return test data
-        mock_convert.return_value = (Path('/tmp/test.md'), 'test content')
-        mock_conv.token_stats.return_value = {
-            'tiktoken_available': True,
-            'tiktoken_out': 100,
-            'tiktoken_pct': 50,
-            'fallback_out': 80,
-            'fallback_pct': 40
-        }
-        
-        # Create a test file
-        with tempfile.NamedTemporaryFile(mode='wb', suffix='.txt', delete=False) as f:
-            f.write(b'test content')
-            temp_path = f.name
-        
-        try:
-            from io import BytesIO
-            data = {'file': (BytesIO(b'test content'), 'test.txt'), 'token_mode': 'tiktoken'}
-            
-            with app.test_client() as client:
-                response = client.post('/convert', data=data, content_type='multipart/form-data')
-                assert response.status_code == 200
-                
-                # Check that the converted files list includes tokenizer
-                response = client.get('/converted-files')
-                data = json.loads(response.data)
-                if len(data) > 0:
-                    assert 'tokenizer' in data[-1]
-                    assert data[-1]['tokenizer'] == 'tiktoken'
-        finally:
-            os.unlink(temp_path)
-    
-    @patch('web_app.conv')
-    @patch('web_app.conv.convert')
-    def test_convert_response_includes_tokenizer_filesize(self, mock_convert, mock_conv):
-        """Test that convert endpoint includes tokenizer field for file size mode."""
-        # Mock the converter to return test data
-        mock_convert.return_value = (Path('/tmp/test.md'), 'test content')
-        mock_conv.token_stats.return_value = {
-            'tiktoken_available': True,
-            'tiktoken_out': 100,
-            'tiktoken_pct': 50,
-            'fallback_out': 80,
-            'fallback_pct': 40
-        }
-        
-        # Create a test file
-        with tempfile.NamedTemporaryFile(mode='wb', suffix='.txt', delete=False) as f:
-            f.write(b'test content')
-            temp_path = f.name
-        
-        try:
-            from io import BytesIO
-            data = {'file': (BytesIO(b'test content'), 'test.txt'), 'token_mode': 'filesize'}
-            
-            with app.test_client() as client:
-                response = client.post('/convert', data=data, content_type='multipart/form-data')
-                assert response.status_code == 200
-                
-                # Check that the converted files list includes tokenizer
-                response = client.get('/converted-files')
-                data = json.loads(response.data)
-                if len(data) > 0:
-                    assert 'tokenizer' in data[-1]
-                    assert data[-1]['tokenizer'] == 'file size'
-        finally:
-            os.unlink(temp_path)
+    @pytest.mark.parametrize('token_mode', ['tiktoken', 'filesize'])
+    def test_convert_response_includes_tokenizer(self, client, token_mode):
+        import web_app
+
+        response = client.post(
+            '/convert',
+            data={
+                'file': (BytesIO(b'name,value\nAlice,1\n'), 'report.csv'),
+                'token_mode': token_mode,
+            },
+        )
+
+        assert response.status_code == 200
+        file_info = response.get_json()['file']
+        expected = 'tiktoken' if token_mode == 'tiktoken' and web_app.conv.TIKTOKEN_AVAILABLE else 'file size'
+        assert file_info['tokenizer'] == expected
 
 
 class TestConfiguredOutputFolder:

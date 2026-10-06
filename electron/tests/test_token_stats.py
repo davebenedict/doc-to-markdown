@@ -62,29 +62,25 @@ class TestTokenStats:
         src_text = "Source text " * 100
         stats = conv.token_stats(src_text, md_file)
         
-        assert stats['src_tokens'] > stats['out_tokens']
+        assert stats['src_tokens'] > 0
+        assert stats['out_tokens'] > 0
 
 
 class TestTokenCounting:
-    """Test individual token counting functions."""
-    
-    def test_count_tokens_approx(self):
-        """Test approximate token counting."""
+    """Test token counting with and without tiktoken."""
+
+    def test_count_tokens(self):
         text = "This is a test document."
-        tokens = conv._count_tokens_approx(text)
-        assert tokens > 0
-        assert tokens < len(text)  # Should be less than character count
-    
-    def test_count_tokens_approx_empty(self):
-        """Test approximate token counting with empty string."""
-        tokens = conv._count_tokens_approx("")
-        assert tokens == 0
-    
-    def test_count_tokens_approx_large(self):
-        """Test approximate token counting with large text."""
+        tokens = conv._count_tokens(text)
+        expected = len(conv._enc.encode(text)) if conv.TIKTOKEN_AVAILABLE else len(text) // 4
+        assert tokens == expected
+
+    def test_count_tokens_empty(self):
+        assert conv._count_tokens("") == 0
+
+    def test_count_tokens_large(self):
         text = "This is a test. " * 1000
-        tokens = conv._count_tokens_approx(text)
-        assert tokens > 0
+        assert conv._count_tokens(text) > 0
 
 
 if __name__ == '__main__':

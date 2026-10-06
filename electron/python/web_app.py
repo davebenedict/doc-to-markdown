@@ -66,7 +66,7 @@ def config():
         _save_config(config)
         return jsonify({'success': True})
 
-@app.route('/converted-files', methods=['GET', 'POST'])
+@app.route('/converted-files', methods=['GET', 'DELETE'])
 def converted_files():
     """Get or clear converted files list."""
     global _converted_files
@@ -157,7 +157,9 @@ def convert_gdrive():
     
     if not url:
         return jsonify({'error': 'No URL provided'}), 400
-    
+
+    temp_dir = None
+    downloaded = None
     try:
         import google_drive as gd
         # The download function takes URL and dest_dir, doc_type is determined internally
@@ -195,16 +197,20 @@ def convert_gdrive():
         global _converted_files
         _converted_files.append(file_info)
 
-        if downloaded.exists():
-            downloaded.unlink()
-        if temp_dir.exists():
-            temp_dir.rmdir()
         return jsonify({'success': True, 'file': file_info})
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
         print(f"GDrive conversion error: {error_trace}")
         return jsonify({'error': str(e), 'details': error_trace}), 500
+    finally:
+        try:
+            if downloaded and downloaded.exists():
+                downloaded.unlink()
+            if temp_dir and temp_dir.exists():
+                temp_dir.rmdir()
+        except OSError:
+            pass
 
 @app.route('/supported-formats')
 def supported_formats():
@@ -221,21 +227,18 @@ def tiktoken_available():
 @app.route('/token-count', methods=['POST'])
 def token_count():
     """Count tokens for markdown content."""
-    content = request.json.get('content')
-    use_tiktoken = request.json.get('use_tiktoken', False)
-    
-    if not content:
-        return jsonify({'error': 'No content provided'}), 400
-    
+    data = request.get_json(silent=True) or {}
+    content = data.get('content')
+    use_tiktoken = data.get('use_tiktoken', False)
+
+    if not isinstance(content, str):
+        return jsonify({'error': 'Content must be a string'}), 400
+
     try:
-        # Check if tiktoken is available
         if use_tiktoken and not conv.TIKTOKEN_AVAILABLE:
             return jsonify({'error': 'tiktoken not available'}), 400
-        
-        if use_tiktoken:
-            tokens = conv._count_tokens_tiktoken(content)
-        else:
-            tokens = conv._count_tokens_approx(content)
+
+        tokens = conv._count_tokens(content) if use_tiktoken else len(content) // 4
         return jsonify({'tokens': tokens})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
