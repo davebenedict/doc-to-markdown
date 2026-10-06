@@ -397,7 +397,7 @@
         <div class="output-section">
             <h3>Output folder</h3>
             <div class="output-row">
-                <input type="text" id="outputDir" placeholder="Same as input folder" readonly>
+                <input type="text" id="outputDir" placeholder="Downloads folder" readonly>
                 <button onclick="browseOutput()">Browse</button>
                 <button onclick="clearOutput()">Clear</button>
             </div>
@@ -703,17 +703,8 @@
                     throw new Error(err.error || 'Conversion failed');
                 }
 
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = file.name.replace(/\.[^/.]+$/, '') + '.md';
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-
-                statusText.textContent = `Successfully converted ${file.name}!`;
+                const result = await response.json();
+                statusText.textContent = `Saved ${result.file.name} to ${result.file.path}`;
                 statusText.className = 'status-text success';
 
                 // Reload file list

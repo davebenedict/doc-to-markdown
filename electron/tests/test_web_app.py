@@ -4,6 +4,7 @@ Unit tests for Flask web backend
 import pytest
 import json
 import tempfile
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 import os
@@ -217,6 +218,29 @@ class TestTokenizerIndicator:
                     assert data[-1]['tokenizer'] == 'file size'
         finally:
             os.unlink(temp_path)
+
+
+class TestConfiguredOutputFolder:
+    def test_upload_saves_to_configured_folder_without_attachment(self, client, tmp_path, monkeypatch):
+        import web_app
+
+        output_dir = tmp_path / "converted"
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"output_dir": str(output_dir)}), encoding="utf-8")
+        monkeypatch.setattr(web_app, "_CONFIG_FILE", config_file)
+        monkeypatch.setattr(web_app, "_converted_files", [])
+
+        response = client.post(
+            "/convert",
+            data={"file": (BytesIO(b"name,value\\nAlice,1\\n"), "report.csv")},
+        )
+
+        assert response.status_code == 200
+        file_info = response.get_json()["file"]
+        output_path = Path(file_info["path"])
+        assert output_path.parent == output_dir.resolve()
+        assert output_path.exists()
+        assert response.headers.get("Content-Disposition") is None
 
 
 class TestConfigFile:

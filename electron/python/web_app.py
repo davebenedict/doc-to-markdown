@@ -3,6 +3,7 @@ web_app.py - Simple Flask web interface for cross-platform document conversion
 """
 
 import logging
+from datetime import datetime
 from pathlib import Path
 import tempfile
 import json
@@ -12,7 +13,7 @@ import os
 logging.basicConfig(level=logging.DEBUG, format='%(message)s')
 logger = logging.getLogger(__name__)
 
-from flask import Flask, render_template, request, send_file, jsonify
+from flask import Flask, render_template, request, jsonify
 import converter as conv
 
 app = Flask(__name__)
@@ -42,6 +43,13 @@ def _save_config(config):
             json.dump(config, f, indent=2)
     except IOError:
         pass
+
+def _get_output_dir():
+    config = _load_config()
+    output_dir = Path(config.get("output_dir") or Path.home() / "Downloads").expanduser()
+    if config.get("datetime_subfolder"):
+        output_dir /= datetime.now().strftime("%Y%m%d")
+    return output_dir
 
 @app.route('/')
 def index():
@@ -88,7 +96,7 @@ def convert_file():
     output_path = None
     try:
         # Convert the file with return_text=True to get source text
-        output_path, src_text = conv.convert(tmp_path, return_text=True)
+        output_path, src_text = conv.convert(tmp_path, output_dir=_get_output_dir(), return_text=True)
 
         # Calculate token stats
         stats = conv.token_stats(src_text, output_path, src=tmp_path)
@@ -118,28 +126,11 @@ def convert_file():
         global _converted_files
         _converted_files.append(file_info)
 
-        # Return as downloadable file
-        response = send_file(
-            output_path,
-            as_attachment=True,
-            download_name=tmp_path.stem + '.md',
-            mimetype='text/markdown'
-        )
-
-        # Clean up after response is sent
-        @response.call_on_close
-        def cleanup():
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-                if output_path and output_path.exists():
-                    output_path.unlink()
-                if temp_dir.exists():
-                    temp_dir.rmdir()
-            except:
-                pass
-
-        return response
+        if tmp_path.exists():
+            tmp_path.unlink()
+        if temp_dir.exists():
+            temp_dir.rmdir()
+        return jsonify({'success': True, 'file': file_info})
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
@@ -174,7 +165,7 @@ def convert_gdrive():
         downloaded = gd.download(url, temp_dir)
         
         # Convert with return_text=True to get source text
-        output_path, src_text = conv.convert(downloaded, return_text=True)
+        output_path, src_text = conv.convert(downloaded, output_dir=_get_output_dir(), return_text=True)
         
         # Calculate token stats
         stats = conv.token_stats(src_text, output_path, src=downloaded)
@@ -204,28 +195,11 @@ def convert_gdrive():
         global _converted_files
         _converted_files.append(file_info)
 
-        # Return as downloadable file
-        response = send_file(
-            output_path,
-            as_attachment=True,
-            download_name=downloaded.stem + '.md',
-            mimetype='text/markdown'
-        )
-
-        # Clean up after response is sent
-        @response.call_on_close
-        def cleanup():
-            try:
-                if downloaded.exists():
-                    downloaded.unlink()
-                if output_path and output_path.exists():
-                    output_path.unlink()
-                if temp_dir.exists():
-                    temp_dir.rmdir()
-            except:
-                pass
-
-        return response
+        if downloaded.exists():
+            downloaded.unlink()
+        if temp_dir.exists():
+            temp_dir.rmdir()
+        return jsonify({'success': True, 'file': file_info})
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
@@ -267,4 +241,4 @@ def token_count():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(host='127.0.0.1', debug=False, port=int(os.environ.get('DOC2MD_PORT', '5000')), use_reloader=False)

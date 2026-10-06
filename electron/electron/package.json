@@ -1,6 +1,6 @@
 {
   "name": "doc2md-electron",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Doc to Markdown Converter - Cross-platform Electron version",
   "main": "main.js",
   "scripts": {
@@ -30,6 +30,10 @@
         "from": "../python",
         "to": "python",
         "filter": ["**/*"]
+      },
+      {
+        "from": "../python/templates",
+        "to": "python/templates"
       }
     ],
     "win": {
