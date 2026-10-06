@@ -50,6 +50,26 @@ To build for the current platform, run `npm run build` from `electron\electron`.
 
 Python and the dependencies in `electron\python\requirements.txt` must also be installed on the target computer. Tesseract and Poppler are required for OCR features.
 
+### macOS setup (Electron)
+
+Install Homebrew if needed, then use Terminal to install Node.js, Python, Tesseract, and Poppler:
+
+```sh
+brew install node python@3.13 tesseract poppler
+```
+
+From the repository root, install the Python and Node dependencies and run the app:
+
+```sh
+cd electron/python
+python3.13 -m pip install -r requirements.txt
+cd ../electron
+npm install
+npm start
+```
+
+To build the macOS DMG, run `npm run build` from `electron/electron`. The DMG is written to `electron/electron/dist`. Tesseract and Poppler are system tools; pip does not install them.
+
 ## Optional browser app
 
 The repository root also includes a Flask web interface. Install the root Python requirements, then run:
