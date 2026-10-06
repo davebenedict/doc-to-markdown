@@ -32,6 +32,8 @@ a = Analysis(
         'striprtf.striprtf',
         'odf',
         'tiktoken',
+        'tiktoken_ext',
+        'tiktoken_ext.openai_public',
         'csv',
     ],
     hookspath=[],

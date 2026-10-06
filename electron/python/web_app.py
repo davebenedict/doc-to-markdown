@@ -15,9 +15,7 @@ logger = logging.getLogger(__name__)
 from flask import Flask, render_template, request, send_file, jsonify
 import converter as conv
 
-# Set up template directory for Electron project
-template_dir = (Path(__file__).parent.parent / 'ui' / 'templates').resolve()
-app = Flask(__name__, template_folder=str(template_dir))
+app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 
