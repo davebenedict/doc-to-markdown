@@ -232,8 +232,34 @@ class TestConfiguredOutputFolder:
 
         response = client.post(
             "/convert",
-            data={"file": (BytesIO(b"name,value\\nAlice,1\\n"), "report.csv")},
+            data={"file": (BytesIO(b"name,value\nAlice,1\n"), "report.csv")},
         )
+
+        assert response.status_code == 200
+        file_info = response.get_json()["file"]
+        output_path = Path(file_info["path"])
+        assert output_path.parent == output_dir.resolve()
+        assert output_path.exists()
+        assert response.headers.get("Content-Disposition") is None
+
+
+    def test_gdrive_conversion_saves_to_configured_folder_without_attachment(self, client, tmp_path, monkeypatch):
+        import web_app
+        import google_drive as gd
+
+        output_dir = tmp_path / "converted"
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"output_dir": str(output_dir)}), encoding="utf-8")
+        monkeypatch.setattr(web_app, "_CONFIG_FILE", config_file)
+        monkeypatch.setattr(web_app, "_converted_files", [])
+
+        def fake_download(url, dest_dir):
+            source = dest_dir / "drive.csv"
+            source.write_text("name,value\nAlice,1\n", encoding="utf-8")
+            return source
+
+        monkeypatch.setattr(gd, "download", fake_download)
+        response = client.post("/convert-gdrive", json={"url": "https://drive.google.com/file/d/valid"})
 
         assert response.status_code == 200
         file_info = response.get_json()["file"]
