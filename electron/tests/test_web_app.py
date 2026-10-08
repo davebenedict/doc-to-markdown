@@ -35,6 +35,13 @@ def sample_config():
     }
 
 
+class TestAppVersion:
+    def test_page_title_uses_version_from_electron(self, client, monkeypatch):
+        monkeypatch.setenv("DOC2MD_VERSION", "2.0.9")
+        response = client.get("/")
+        assert "Doc to Markdown Converter v2.0.9" in response.get_data(as_text=True)
+
+
 class TestConfigEndpoints:
     """Test configuration endpoints."""
     

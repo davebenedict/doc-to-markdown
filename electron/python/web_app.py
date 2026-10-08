@@ -53,8 +53,7 @@ def _get_output_dir():
 
 @app.route('/')
 def index():
-    response = render_template('index.html')
-    return response
+    return render_template('index.html', app_version=os.environ.get('DOC2MD_VERSION', '2.0'))
 
 @app.route('/config', methods=['GET', 'POST'])
 def config():

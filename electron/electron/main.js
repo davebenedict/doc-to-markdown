@@ -18,7 +18,7 @@ function createWindow() {
             preload: path.join(__dirname, 'preload.js')
         },
         icon: path.join(__dirname, process.platform === 'win32' ? 'app-icon.ico' : 'app-icon.png'),
-        title: 'Doc to Markdown Converter v2.0'
+        title: `Doc to Markdown Converter v${app.getVersion()}`
     });
 
     mainWindow.on('closed', () => {
@@ -64,7 +64,7 @@ async function startFlaskBackend() {
     const port = await getAvailablePort();
     pythonProcess = spawn(backendCommand, backendArgs, {
         cwd,
-        env: { ...process.env, DOC2MD_PORT: String(port) },
+        env: { ...process.env, DOC2MD_PORT: String(port), DOC2MD_VERSION: app.getVersion() },
         windowsHide: process.platform === 'win32'
     });
 
