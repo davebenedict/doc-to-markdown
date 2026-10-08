@@ -345,6 +345,36 @@ class TestRequire:
         assert mod is not None
 
 
+class TestFriendlyErrorMessages:
+    def test_missing_package_suggests_install_command(self):
+        exc = ImportError("Required package 'PyMuPDF' is not installed.")
+        message = conv.friendly_error_message(exc)
+        assert "PyMuPDF" in message
+        assert "pip install -r" in message
+        assert "requirements.txt" in message
+
+    def test_missing_package_in_frozen_app_suggests_corrected_build(self, monkeypatch):
+        monkeypatch.setattr(conv.sys, "frozen", True, raising=False)
+        message = conv.friendly_error_message(ImportError("Required package 'PyMuPDF' is not installed."))
+        assert "complete app build" in message
+
+    def test_missing_tesseract_gives_install_guidance(self):
+        exc = type("TesseractNotFoundError", (Exception,), {})()
+        message = conv.friendly_error_message(exc)
+        assert "Tesseract" in message
+        assert "PATH" in message
+
+    def test_missing_poppler_gives_install_guidance(self):
+        exc = type("PDFInfoNotInstalledError", (Exception,), {})()
+        message = conv.friendly_error_message(exc)
+        assert "Poppler" in message
+        assert "pdftoppm" in message
+
+    def test_permission_error_suggests_writable_folder(self):
+        message = conv.friendly_error_message(PermissionError("access denied"))
+        assert "write permission" in message
+
+
 # ---------------------------------------------------------------------------
 # JSON conversion
 # ---------------------------------------------------------------------------

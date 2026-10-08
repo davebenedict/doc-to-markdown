@@ -83,5 +83,23 @@ class TestTokenCounting:
         assert conv._count_tokens(text) > 0
 
 
+class TestFriendlyErrorMessages:
+    def test_missing_python_package_suggests_requirements(self):
+        exc = ImportError("Required package 'PyMuPDF' is not installed.")
+        message = conv.friendly_error_message(exc)
+        assert "PyMuPDF" in message
+        assert str(Path(conv.__file__).with_name("requirements.txt")) in message
+
+    def test_missing_tesseract_suggests_install_and_path(self):
+        exc = type("TesseractNotFoundError", (Exception,), {})()
+        message = conv.friendly_error_message(exc)
+        assert "Tesseract" in message
+        assert "PATH" in message
+
+    def test_permission_error_suggests_writable_folder(self):
+        message = conv.friendly_error_message(PermissionError("access denied"))
+        assert "write permission" in message
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

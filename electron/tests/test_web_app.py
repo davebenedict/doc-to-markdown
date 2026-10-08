@@ -143,6 +143,27 @@ class TestTokenizerIndicator:
         assert file_info['tokenizer'] == expected
 
 
+class TestFriendlyConversionErrors:
+    def test_missing_package_response_includes_resolution_not_traceback(self, client, monkeypatch):
+        import web_app
+
+        def fail_convert(*args, **kwargs):
+            raise ImportError("Required package 'PyMuPDF' is not installed.")
+
+        monkeypatch.setattr(web_app.conv, "convert", fail_convert)
+        response = client.post(
+            "/convert",
+            data={"file": (BytesIO(b"pdf bytes"), "report.pdf")},
+        )
+
+        assert response.status_code == 500
+        error = response.get_json()["error"]
+        assert "PyMuPDF" in error
+        assert "pip install PyMuPDF" in error
+        assert "requirements.txt" in error
+        assert "Traceback" not in error
+
+
 class TestConfiguredOutputFolder:
     def test_upload_saves_to_configured_folder_without_attachment(self, client, tmp_path, monkeypatch):
         import web_app

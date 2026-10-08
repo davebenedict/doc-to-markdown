@@ -147,7 +147,7 @@ def convert_file():
         except:
             pass
 
-        return jsonify({'error': str(e), 'details': error_trace}), 500
+        return jsonify({'error': conv.friendly_error_message(e)}), 500
 
 @app.route('/convert-gdrive', methods=['POST'])
 def convert_gdrive():
@@ -202,7 +202,7 @@ def convert_gdrive():
         import traceback
         error_trace = traceback.format_exc()
         print(f"GDrive conversion error: {error_trace}")
-        return jsonify({'error': str(e), 'details': error_trace}), 500
+        return jsonify({'error': conv.friendly_error_message(e)}), 500
     finally:
         try:
             if downloaded and downloaded.exists():
@@ -241,7 +241,7 @@ def token_count():
         tokens = conv._count_tokens(content) if use_tiktoken else len(content) // 4
         return jsonify({'tokens': tokens})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': conv.friendly_error_message(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', debug=False, port=int(os.environ.get('DOC2MD_PORT', '5000')), use_reloader=False)

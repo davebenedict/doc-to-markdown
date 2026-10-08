@@ -1,11 +1,11 @@
 {
   "name": "doc2md-electron",
-  "version": "2.0.3",
+  "version": "2.0.8",
   "description": "Doc to Markdown Converter - Cross-platform Electron version",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder"
+    "build": "node build-backend.js && electron-builder"
   },
   "keywords": [],
   "author": "",
@@ -23,17 +23,14 @@
     },
     "files": [
       "**/*",
-      "!dist/**"
+      "!dist/**",
+      "!build-backend.js"
     ],
     "extraResources": [
       {
-        "from": "../python",
-        "to": "python",
+        "from": "../python/dist/doc2md-backend",
+        "to": "backend",
         "filter": ["**/*"]
-      },
-      {
-        "from": "../python/templates",
-        "to": "python/templates"
       }
     ],
     "win": {

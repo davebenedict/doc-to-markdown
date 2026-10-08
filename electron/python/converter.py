@@ -41,6 +41,40 @@ def _require(pkg_name: str, import_name: str | None = None):
         )
 
 
+def friendly_error_message(exc: Exception) -> str:
+    message = str(exc).strip()
+    error_name = type(exc).__name__
+
+    if error_name == "TesseractNotFoundError":
+        return "Tesseract OCR was not found. Install Tesseract, ensure the `tesseract` command is on PATH, then restart the app. On macOS, run `brew install tesseract`."
+    if error_name == "PDFInfoNotInstalledError":
+        return "Poppler was not found. Install Poppler and ensure `pdfinfo` and `pdftoppm` are on PATH, then restart the app. On macOS, run `brew install poppler`."
+    if error_name == "PDFPageCountError":
+        return "Could not read the PDF page count. Check that the PDF is valid; scanned PDFs also require Poppler (`pdfinfo` and `pdftoppm`) on PATH."
+    if isinstance(exc, ImportError):
+        match = re.search(r"Required package '([^']+)' is not installed", message)
+        if not match:
+            match = re.search(r"No module named ['\"]([^'\"]+)['\"]", message)
+        package = match.group(1) if match else None
+        if getattr(sys, "frozen", False):
+            missing = f" {package}" if package else ""
+            return f"This app build could not load a bundled Python dependency{missing}. Install a complete app build; installing it into system Python will not repair this executable."
+        requirements_file = Path(__file__).with_name("requirements.txt")
+        install_all = f'"{sys.executable}" -m pip install -r "{requirements_file}"'
+        if package:
+            package = {"fitz": "PyMuPDF", "PIL": "Pillow", "docx": "python-docx", "pptx": "python-pptx", "odf": "odfpy"}.get(package, package)
+            install_package = f'"{sys.executable}" -m pip install {package}'
+            return f"Required Python package '{package}' is missing. Install it into this app's Python environment with `{install_package}`. For a source checkout, install all project dependencies with `{install_all}`."
+        return f"A Python dependency could not be loaded ({message}). Reinstall all project dependencies with `{install_all}`, then restart the app."
+    if isinstance(exc, PermissionError):
+        return "Access was denied while reading a file or writing the output folder. Choose a folder where you have write permission and close the file if it is open elsewhere."
+    if isinstance(exc, FileNotFoundError):
+        return f"A file or required program was not found. Check the selected path; for OCR, ensure Tesseract and Poppler are installed and on PATH. Details: {message}"
+    if isinstance(exc, OSError):
+        return f"A system error prevented conversion. Check file paths, output-folder permissions, and required OCR tools. Details: {message}"
+    return message or "An unexpected error prevented conversion."
+
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------

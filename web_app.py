@@ -71,7 +71,7 @@ def convert_file():
         except:
             pass
 
-        return jsonify({'error': str(e), 'details': error_trace}), 500
+        return jsonify({'error': conv.friendly_error_message(e)}), 500
 
 @app.route('/supported-formats')
 def supported_formats():

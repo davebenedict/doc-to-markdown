@@ -1,81 +1,68 @@
-# Doc to Markdown Converter v2.0 (Electron)
+# Doc to Markdown Converter — Electron
 
-Cross-platform desktop app for converting documents to Markdown.
+Cross-platform desktop app with an Electron interface and a PyInstaller-bundled Flask/Python backend.
 
-## Features
+## Requirements
 
-- Cross-platform (Mac, Windows, Linux)
-- Same conversion functionality as v1.0
-- Native desktop interface via Electron
-- Drag-and-drop file upload
-- Browser-based UI embedded in Electron window
+- Node.js 18 or later to install, run, or build the Electron project.
+- Python 3.9 or later and the packages in `python/requirements.txt` to run from source or create a release.
+- Tesseract and Poppler on the target computer for image and scanned-PDF OCR. These are external system tools and are not bundled.
 
-## Installation
+The packaged installer bundles Python and the backend dependencies; end users do not need Python or pip packages installed.
 
-### Prerequisites
+## Run from source
 
-1. **Node.js** (v18 or higher)
-   - Download from https://nodejs.org/
+From this directory (`doc2md/electron`), install the Python dependencies first.
 
-2. **Python 3.9+**
-   - Download from https://www.python.org/downloads/
+Windows PowerShell:
 
-3. **Python dependencies**
-   ```bash
-   cd python
-   pip install -r requirements.txt
-   ```
-
-4. **Node dependencies**
-   ```bash
-   cd electron
-   npm install
-   ```
-
-## Running the App
-
-### Development mode
-```bash
-cd electron
+```powershell
+cd python
+py -3 -m pip install -r requirements.txt
+cd ..\electron
+npm install
 npm start
 ```
 
-### Building for production
-```bash
+macOS or Linux:
+
+```sh
+cd python
+python3 -m pip install -r requirements.txt
+cd ../electron
+npm install
+npm start
+```
+
+## Build installers
+
+Run the build on the target OS and architecture. `npm run build` first creates a PyInstaller backend bundle, then packages it with Electron:
+
+```sh
 cd electron
 npm run build
 ```
 
-Build artifacts will be in `electron/dist/`.
+Artifacts are written to `electron/dist/` relative to this directory:
 
-## Project Structure
-
-```
-doc2md-electron/
-├── electron/
-│   ├── main.js (Electron main process)
-│   ├── preload.js (Bridge between main and renderer)
-│   └── package.json
-├── python/
-│   ├── web_app.py (Flask backend)
-│   ├── converter.py (Conversion logic)
-│   ├── google_drive.py (Google Drive integration)
-│   └── requirements.txt
-└── ui/
-    └── templates/index.html (Web UI)
-```
+- Windows: NSIS installer and portable executable
+- macOS: DMG
+- Linux: AppImage and DEB
 
 ## Architecture
 
-- Electron spawns Python Flask backend
-- Flask backend runs on localhost:5000
-- Electron loads Flask app in embedded browser window
-- Python backend handles all document conversion
-- Electron handles native desktop features
+- Electron provides the desktop window, native file dialogs, and file open/reveal actions.
+- The packaged app launches the bundled Flask backend; development mode launches Python from `python/web_app.py`.
+- Converted files are saved to the selected output folder, or Downloads if none is selected.
+- Tesseract and Poppler must be installed separately for OCR.
 
-## v1.0 vs v2.0
+## Project structure
 
-- **v1.0**: Windows-only native app (CustomTkinter)
-- **v2.0**: Cross-platform Electron app (Mac/Windows/Linux)
-
-Both versions share the same conversion logic and web UI.
+```text
+electron/
+  electron/             Electron main process, preload, and package/build config
+  python/               Flask backend, converter, Google Drive helper, and HTML template
+    backend.spec        PyInstaller configuration for the bundled backend
+    requirements.txt    Backend and build dependencies
+  tests/                Flask/backend tests
+```

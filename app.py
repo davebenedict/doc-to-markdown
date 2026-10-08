@@ -815,11 +815,13 @@ class App(DnDTk):
             self.after(0, self._add_file_row, out_path, stats, downloaded.suffix.lower(), original_size, tokenizer_mode)
             self._set_status(f"Done — {out_path.name}")
         except TimeoutError as exc:
-            self._set_status("Timed out waiting for download.", error=True)
-            self.after(0, lambda: messagebox.showerror("Download timed out", str(exc)))
+            message = conv.friendly_error_message(exc)
+            self._set_status(message, error=True)
+            self.after(0, lambda message=message: messagebox.showerror("Download timed out", message))
         except Exception as exc:
-            self._set_status(f"Error: {exc}", error=True)
-            self.after(0, lambda: messagebox.showerror("Google Drive conversion failed", str(exc)))
+            message = conv.friendly_error_message(exc)
+            self._set_status(f"Error: {message}", error=True)
+            self.after(0, lambda message=message: messagebox.showerror("Google Drive conversion failed", message))
         finally:
             self.after(0, lambda: self._drop_frame.configure(border_color=ACCENT))
 
@@ -919,14 +921,13 @@ class App(DnDTk):
                         self.after(0, self._add_file_row, out_path, stats, src.suffix.lower(), original_size, tokenizer_mode)
                         ok += 1
                     except ImportError as exc:
-                        pkg = conv.MISSING_DEPS.get(src.suffix.lower(), str(exc))
-                        hint = f"missing library — pip install {pkg}"
+                        hint = conv.friendly_error_message(exc)
                         if hint not in seen_hints:
                             details.append(f"{src.suffix.lower()} files  ({hint})")
                             seen_hints.add(hint)
                         failed += 1
                     except Exception as exc:
-                        details.append(f"{src.name}  (error: {exc})")
+                        details.append(f"{src.name}  ({conv.friendly_error_message(exc)})")
                         failed += 1
 
                 # Drain any files queued while we were working
@@ -996,14 +997,13 @@ class App(DnDTk):
                 self.after(0, self._add_file_row, out_path, stats, src.suffix.lower(), original_size, tokenizer_mode)
                 ok += 1
             except ImportError as exc:
-                pkg = conv.MISSING_DEPS.get(src.suffix.lower(), str(exc))
-                hint = f"missing library — pip install {pkg}"
+                hint = conv.friendly_error_message(exc)
                 if hint not in seen_hints:
                     errors.append(f"{src.suffix.lower()} files  ({hint})")
                     seen_hints.add(hint)
                 failed += 1
             except Exception as exc:
-                errors.append(f"{src.name}  (error: {exc})")
+                errors.append(f"{src.name}  ({conv.friendly_error_message(exc)})")
                 failed += 1
 
         details = skipped + errors

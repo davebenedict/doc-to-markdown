@@ -39,47 +39,72 @@ function createWindow() {
         .catch(error => {
             console.error(`Flask startup failed: ${error.message}`);
             if (mainWindow) {
-                dialog.showErrorBox('Backend startup failed', error.message);
+                dialog.showErrorBox('Backend startup failed', backendStartupMessage(error));
             }
         });
 }
 
 async function startFlaskBackend() {
-    // Determine Python path and script path based on whether we're in development or production
-    let pythonPath, scriptPath;
+    // Select the bundled backend for packaged builds or Python for development.
+    let backendCommand, backendArgs, cwd;
 
     if (app.isPackaged) {
-        // Production: Python and scripts are in the resources directory
-        pythonPath = process.platform === 'win32' ? 'python.exe' : 'python3';
-        const resourcesPath = process.resourcesPath;
-        scriptPath = path.join(resourcesPath, 'python', 'web_app.py');
+        // Production: the bundled backend is in the resources directory
+        cwd = path.join(process.resourcesPath, 'backend');
+        backendCommand = path.join(cwd, process.platform === 'win32' ? 'doc2md-backend.exe' : 'doc2md-backend');
+        backendArgs = [];
     } else {
         // Development: Use local paths
-        pythonPath = process.platform === 'win32' ? 'python' : 'python3';
-        scriptPath = path.join(__dirname, '../python/web_app.py');
+        const scriptPath = path.join(__dirname, '../python/web_app.py');
+        backendCommand = process.platform === 'win32' ? 'py' : 'python3';
+        backendArgs = process.platform === 'win32' ? ['-3', scriptPath] : [scriptPath];
+        cwd = path.join(__dirname, '../python');
     }
 
-    const cwd = app.isPackaged ? path.join(process.resourcesPath, 'python') : path.join(__dirname, '../python');
     const port = await getAvailablePort();
-    pythonProcess = spawn(pythonPath, [scriptPath], {
+    pythonProcess = spawn(backendCommand, backendArgs, {
         cwd,
-        env: { ...process.env, DOC2MD_PORT: String(port) }
+        env: { ...process.env, DOC2MD_PORT: String(port) },
+        windowsHide: process.platform === 'win32'
     });
 
+    let backendStderr = '';
     pythonProcess.stdout.on('data', (data) => {
         console.log(`Flask: ${data}`);
     });
 
     pythonProcess.stderr.on('data', (data) => {
-        console.error(`Flask Error: ${data}`);
+        const text = data.toString();
+        backendStderr = `${backendStderr}${text}`.slice(-4000);
+        console.error(`Flask Error: ${text}`);
     });
 
     pythonProcess.on('close', (code) => {
         console.log(`Flask process exited with code ${code}`);
     });
 
-    await waitForBackend(port, pythonProcess);
+    await waitForBackend(port, pythonProcess, () => backendStderr);
     return port;
+}
+
+function backendStartupMessage(error) {
+    const message = error.message || String(error);
+    const missingModule = message.match(/No module named ['\"]([^'\"]+)['\"]/);
+    const details = message.split(/\r?\n/).filter(Boolean).pop();
+    if (app.isPackaged) {
+        if (missingModule) {
+            return `The bundled backend is missing '${missingModule[1]}'. The installed bundle is incomplete; install a corrected release.`;
+        }
+        return `The bundled conversion backend could not start. Reinstall the app or download a corrected build. Details: ${details || 'No additional details were reported.'}`;
+    }
+    if (error.code === 'ENOENT' || /spawn (?:py|python3?)(?:\.exe)? ENOENT/i.test(message)) {
+        return 'Python 3 was not found. Install Python 3.9 or later and ensure py/python3 is on PATH.';
+    }
+    if (missingModule) {
+        const pipCommand = process.platform === 'win32' ? 'py -3' : 'python3';
+        return `The development backend is missing '${missingModule[1]}'. Install dependencies with ${pipCommand} -m pip install -r electron/python/requirements.txt, then restart.`;
+    }
+    return `The development backend could not start. Check Python and electron/python/requirements.txt. Details: ${details || 'No additional details were reported.'}`;
 }
 
 function getAvailablePort() {
@@ -93,13 +118,17 @@ function getAvailablePort() {
     });
 }
 
-function waitForBackend(port, child) {
+function waitForBackend(port, child, getErrorOutput) {
     return new Promise((resolve, reject) => {
         let attempts = 0;
         let settled = false;
         const fail = error => {
             if (!settled) {
                 settled = true;
+                const output = getErrorOutput().trim();
+                if (output) {
+                    error.message = `${error.message}\n${output}`;
+                }
                 reject(error);
             }
         };

@@ -7,7 +7,7 @@ Convert documents into clean Markdown for LLMs and RAG pipelines. The repository
 | App | Interface | Platforms | Runtime requirements |
 |-----|-----------|-----------|----------------------|
 | **Native Windows** | CustomTkinter desktop UI with drag-and-drop | Windows | The downloaded executable does not require Python. Tesseract and Poppler are needed for image/scanned-PDF OCR. |
-| **Electron** | Electron desktop window with a Flask/Python backend | Windows, macOS, Linux | Node.js 18+, Python 3.9+, and the Python dependencies installed on the computer. The package includes backend source, not a Python runtime. |
+| **Electron** | Electron desktop window with a bundled Flask/Python backend | Windows, macOS, Linux | Packaged app needs no Python installation. Tesseract and Poppler are needed for OCR. Python and build dependencies are needed to run from source or create a release. |
 
 Both desktop apps support document conversion, output-folder selection, token estimates, and Google Drive URL conversion. The Electron app saves conversions directly to the selected output folder; without one, it uses the user's Downloads folder. Its optional date subfolder groups output by date.
 
@@ -32,23 +32,25 @@ The executable is created at `dist\DocToMarkdown.exe`. OCR for scanned PDFs and 
 
 ## Electron app
 
-Electron provides the desktop window; Python runs the local Flask conversion backend. To install dependencies and run in development mode from the repository root:
+The packaged Electron app includes a PyInstaller-bundled Flask backend and Python dependencies, so end users do not need to install Python or pip packages. Tesseract and Poppler remain separate system prerequisites for OCR.
+
+To run from source on Windows, install the Python/build dependencies and Node packages from the repository root:
 
 ```powershell
 cd electron\python
-py -m pip install -r requirements.txt
+py -3 -m pip install -r requirements.txt
 cd ..\electron
 npm install
 npm start
 ```
 
-To build for the current platform, run `npm run build` from `electron\electron`. Artifacts are written to `electron\electron\dist`:
+To build a release, run `npm run build` from `electron\electron`. The build script creates the backend bundle for the current OS/architecture and then packages it with Electron. Artifacts are written to `electron\electron\dist`:
 
 - Windows: NSIS installer and portable executable
 - macOS: DMG
 - Linux: AppImage and DEB
 
-Python and the dependencies in `electron\python\requirements.txt` must also be installed on the target computer. Tesseract and Poppler are required for OCR features.
+Build on the same operating system and architecture as the target. Install Tesseract and Poppler on target computers only if OCR is needed; these system tools are not bundled.
 
 ### macOS setup (Electron)
 
@@ -58,17 +60,17 @@ Install Homebrew if needed, then use Terminal to install Node.js, Python, Tesser
 brew install node python@3.13 tesseract poppler
 ```
 
-From the repository root, install the Python and Node dependencies and run the app:
+From the repository root, install the Python build dependencies and run the app in development mode:
 
 ```sh
 cd electron/python
-python3.13 -m pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 cd ../electron
 npm install
 npm start
 ```
 
-To build the macOS DMG, run `npm run build` from `electron/electron`. The DMG is written to `electron/electron/dist`. Tesseract and Poppler are system tools; pip does not install them.
+The `npm run build` command automatically freezes the backend before creating the DMG. Python is required to build or run from source, but not to run the packaged DMG.
 
 ## Optional browser app
 
