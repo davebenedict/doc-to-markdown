@@ -1,6 +1,7 @@
 """
 Unit tests for Flask web backend
 """
+import base64
 import pytest
 import json
 from io import BytesIO
@@ -40,6 +41,38 @@ class TestAppVersion:
         monkeypatch.setenv("DOC2MD_VERSION", "2.0.9")
         response = client.get("/")
         assert "Doc to Markdown Converter v2.0.9" in response.get_data(as_text=True)
+
+
+class TestSupportedFormatsClick:
+    def test_formats_dropdown_stops_clicks_from_opening_file_picker(self):
+        template_path = Path(__file__).parent.parent / "python" / "templates" / "index.html"
+        template = template_path.read_text(encoding="utf-8")
+        assert "formatsDropdown.addEventListener('click', event => event.stopPropagation())" in template
+        assert "dropZone.addEventListener('click', () => fileInput.click())" in template
+
+
+class TestBase64ImageHandling:
+    def test_base64_images_are_extracted_and_external_images_remain(self, tmp_path):
+        import web_app
+
+        encoded_image = "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+        html = tmp_path / "images.html"
+        html.write_text(
+            f'<p>Body text</p><img src="data:image/gif;base64,{encoded_image}" alt="Embedded diagram">'
+            '<img src="images/diagram.png" alt="Linked diagram">',
+            encoding="utf-8",
+        )
+
+        result = web_app.conv.convert(html)
+        content = result.read_text(encoding="utf-8")
+        image_path = tmp_path / "images.html_images" / "image_001.gif"
+
+        assert "Body text" in content
+        assert "![Embedded diagram](images.html_images/image_001.gif)" in content
+        assert "data:image/" not in content
+        assert encoded_image not in content
+        assert image_path.read_bytes() == base64.b64decode(encoded_image)
+        assert "![Linked diagram](images/diagram.png)" in content
 
 
 class TestConfigEndpoints:
@@ -172,6 +205,28 @@ class TestFriendlyConversionErrors:
 
 
 class TestConfiguredOutputFolder:
+    def test_html_upload_saves_embedded_images_alongside_markdown(self, client, tmp_path, monkeypatch):
+        import web_app
+
+        output_dir = tmp_path / "converted"
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"output_dir": str(output_dir)}), encoding="utf-8")
+        monkeypatch.setattr(web_app, "_CONFIG_FILE", config_file)
+        monkeypatch.setattr(web_app, "_converted_files", [])
+        encoded_image = "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+        html = (
+            f'<p>Body text</p><img src="data:image/gif;base64,{encoded_image}" alt="Embedded diagram">'
+        ).encode("utf-8")
+
+        response = client.post("/convert", data={"file": (BytesIO(html), "images.html")})
+
+        assert response.status_code == 200
+        output_path = Path(response.get_json()["file"]["path"])
+        image_path = output_dir / "images.html_images" / "image_001.gif"
+        assert output_path.exists()
+        assert "![Embedded diagram](images.html_images/image_001.gif)" in output_path.read_text(encoding="utf-8")
+        assert image_path.read_bytes() == base64.b64decode(encoded_image)
+
     def test_upload_saves_to_configured_folder_without_attachment(self, client, tmp_path, monkeypatch):
         import web_app
 

@@ -4,6 +4,7 @@ Tests for converter.py
 
 from __future__ import annotations
 
+import base64
 import csv
 import textwrap
 from pathlib import Path
@@ -221,6 +222,26 @@ class TestHtmlConversion:
         result = conv.convert(htm)
         assert result.exists()
         assert "works" in result.read_text(encoding="utf-8")
+
+    def test_base64_images_are_extracted_and_external_images_remain(self, tmp_path):
+        encoded_image = "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+        html = tmp_path / "images.html"
+        html.write_text(
+            f'<p>Body text</p><img src="data:image/gif;base64,{encoded_image}" alt="Embedded diagram">'
+            '<img src="images/diagram.png" alt="Linked diagram">',
+            encoding="utf-8",
+        )
+
+        result = conv.convert(html)
+        content = result.read_text(encoding="utf-8")
+        image_path = tmp_path / "images.html_images" / "image_001.gif"
+
+        assert "Body text" in content
+        assert "![Embedded diagram](images.html_images/image_001.gif)" in content
+        assert "data:image/" not in content
+        assert encoded_image not in content
+        assert image_path.read_bytes() == base64.b64decode(encoded_image)
+        assert "![Linked diagram](images/diagram.png)" in content
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 {
   "name": "doc2md-electron",
-  "version": "2.0.10",
+  "version": "2.0.12",
   "description": "Doc to Markdown Converter - Cross-platform Electron version",
   "main": "main.js",
   "scripts": {

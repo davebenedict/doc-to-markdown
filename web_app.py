@@ -4,7 +4,10 @@ web_app.py - Simple Flask web interface for cross-platform document conversion
 
 from flask import Flask, render_template, request, send_file, jsonify
 from pathlib import Path
+import shutil
 import tempfile
+from zipfile import ZIP_DEFLATED, ZipFile
+
 import converter as conv
 
 app = Flask(__name__)
@@ -32,45 +35,34 @@ def convert_file():
     try:
         # Convert the file
         output_path = conv.convert(tmp_path)
+        image_dir = temp_dir / conv._image_asset_dir_name(output_path)
+        if image_dir.is_dir():
+            download_path = temp_dir / f"{tmp_path.stem}.zip"
+            with ZipFile(download_path, "w", ZIP_DEFLATED) as archive:
+                archive.write(output_path, output_path.name)
+                for image_path in image_dir.rglob("*"):
+                    if image_path.is_file():
+                        archive.write(image_path, image_path.relative_to(temp_dir).as_posix())
+            download_name = download_path.name
+            mimetype = "application/zip"
+        else:
+            download_path = output_path
+            download_name = tmp_path.stem + '.md'
+            mimetype = 'text/markdown'
 
-        # Return as downloadable file
         response = send_file(
-            output_path,
+            download_path,
             as_attachment=True,
-            download_name=tmp_path.stem + '.md',
-            mimetype='text/markdown'
+            download_name=download_name,
+            mimetype=mimetype
         )
-
-        # Clean up after response is sent
-        @response.call_on_close
-        def cleanup():
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-                if output_path and output_path.exists():
-                    output_path.unlink()
-                if temp_dir.exists():
-                    temp_dir.rmdir()
-            except:
-                pass
-
+        response.call_on_close(lambda: shutil.rmtree(temp_dir, ignore_errors=True))
         return response
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
         print(f"Conversion error: {error_trace}")
-
-        # Clean up on error
-        try:
-            if tmp_path.exists():
-                tmp_path.unlink()
-            if output_path and output_path.exists():
-                output_path.unlink()
-            if temp_dir.exists():
-                temp_dir.rmdir()
-        except:
-            pass
-
+        shutil.rmtree(temp_dir, ignore_errors=True)
         return jsonify({'error': conv.friendly_error_message(e)}), 500
 
 @app.route('/supported-formats')

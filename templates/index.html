@@ -175,14 +175,17 @@
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = file.name.replace(/\.[^/.]+$/, '') + '.md';
+                const extension = blob.type.includes('application/zip') ? '.zip' : '.md';
+                a.download = file.name.replace(/\.[^/.]+$/, '') + extension;
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
 
                 status.className = 'status success';
-                status.textContent = `Successfully converted ${file.name}!`;
+                status.textContent = extension === '.zip'
+                    ? `Downloaded ${file.name} with its extracted images in a ZIP file.`
+                    : `Successfully converted ${file.name}!`;
             })
             .catch(error => {
                 status.className = 'status error';

@@ -18,6 +18,8 @@ Supported formats:
 
 from __future__ import annotations
 
+import base64
+import binascii
 import csv
 import os
 import re
@@ -522,17 +524,92 @@ def _convert_pptx(path: Path, progress_cb: Callable[[str], None] | None = None) 
 # HTML conversion
 # ---------------------------------------------------------------------------
 
-def _convert_html(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
+_IMAGE_MIME_EXTENSIONS = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/bmp": ".bmp",
+    "image/tiff": ".tiff",
+    "image/svg+xml": ".svg",
+    "image/avif": ".avif",
+    "image/x-icon": ".ico",
+}
+
+
+def _decode_base64_image(src: str) -> tuple[str, bytes] | None:
+    if not src.strip().lower().startswith("data:image/"):
+        return None
+    header, separator, encoded = src.strip()[5:].partition(",")
+    if not separator:
+        return None
+    parameters = header.split(";")
+    extension = _IMAGE_MIME_EXTENSIONS.get(parameters[0].lower())
+    if extension is None or "base64" not in {part.strip().lower() for part in parameters[1:]}:
+        return None
+    try:
+        image_data = base64.b64decode("".join(encoded.split()), validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    return (extension, image_data) if image_data else None
+
+
+def _image_asset_dir_name(out_path: Path) -> str:
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", out_path.stem).strip("._")
+    return f"{stem[:80] or 'document'}_images"
+
+
+def _markdownify_html(
+    html: str,
+    markdownify,
+    image_assets: dict[str, bytes] | None = None,
+    image_dir_name: str | None = None,
+) -> str:
+    class _ImageAssetMarkdownConverter(markdownify.MarkdownConverter):
+        def convert_img(self, el, text, convert_as_inline):
+            src = el.attrs.get("src", "") or ""
+            alt = el.attrs.get("alt", "") or ""
+            if not isinstance(src, str) or not src.strip().lower().startswith("data:image/"):
+                return super().convert_img(el, text, convert_as_inline)
+            if convert_as_inline and el.parent.name not in self.options["keep_inline_images_in"]:
+                return alt
+            decoded = _decode_base64_image(src)
+            if decoded is None or image_assets is None or image_dir_name is None:
+                return alt
+            extension, image_data = decoded
+            filename = f"image_{len(image_assets) + 1:03d}{extension}"
+            image_assets[filename] = image_data
+            el.attrs["src"] = f"{image_dir_name}/{filename}"
+            try:
+                return super().convert_img(el, text, convert_as_inline)
+            finally:
+                el.attrs["src"] = src
+
+    return _ImageAssetMarkdownConverter(heading_style="ATX").convert(html).strip()
+
+
+def _convert_html(
+    path: Path,
+    progress_cb: Callable[[str], None] | None = None,
+    image_assets: dict[str, bytes] | None = None,
+    image_dir_name: str | None = None,
+) -> str:
     markdownify = _require("markdownify")
 
     if progress_cb:
         progress_cb(f"Converting HTML {path.name}…")
 
     html = path.read_text(encoding="utf-8", errors="replace")
-    return markdownify.markdownify(html, heading_style="ATX").strip()
+    return _markdownify_html(html, markdownify, image_assets, image_dir_name)
 
 
-def _convert_epub(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
+def _convert_epub(
+    path: Path,
+    progress_cb: Callable[[str], None] | None = None,
+    image_assets: dict[str, bytes] | None = None,
+    image_dir_name: str | None = None,
+) -> str:
     ebooklib = _require("ebooklib")
     markdownify = _require("markdownify")
     epub = ebooklib.epub
@@ -544,7 +621,7 @@ def _convert_epub(path: Path, progress_cb: Callable[[str], None] | None = None) 
     parts: list[str] = []
     for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
         html = item.get_content().decode("utf-8", errors="replace")
-        md = markdownify.markdownify(html, heading_style="ATX").strip()
+        md = _markdownify_html(html, markdownify, image_assets, image_dir_name)
         if md:
             parts.append(md)
     return "\n\n".join(parts)
@@ -757,12 +834,17 @@ def convert(
     out_dir = Path(output_dir).resolve() if output_dir else src.parent
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / (src.name + ".md")
+    extract_images = ext in {".html", ".htm", ".epub"}
+    image_dir_name = _image_asset_dir_name(out_path) if extract_images else None
 
     # Avoid silently overwriting existing files
     counter = 1
-    while out_path.exists():
+    while out_path.exists() or (image_dir_name and (out_dir / image_dir_name).exists()):
         out_path = out_dir / f"{src.name}_{counter}.md"
+        image_dir_name = _image_asset_dir_name(out_path) if extract_images else None
         counter += 1
+
+    image_assets: dict[str, bytes] | None = {} if image_dir_name else None
 
     # Route to converter
     if ext == ".pdf":
@@ -772,7 +854,7 @@ def convert(
     elif ext == ".docx":
         md = _convert_docx(src, progress_cb)
     elif ext in {".html", ".htm"}:
-        md = _convert_html(src, progress_cb)
+        md = _convert_html(src, progress_cb, image_assets, image_dir_name)
     elif ext in {".xlsx", ".xls"}:
         md = _convert_excel(src, progress_cb)
     elif ext == ".csv":
@@ -780,7 +862,7 @@ def convert(
     elif ext == ".pptx":
         md = _convert_pptx(src, progress_cb)
     elif ext == ".epub":
-        md = _convert_epub(src, progress_cb)
+        md = _convert_epub(src, progress_cb, image_assets, image_dir_name)
     elif ext == ".rtf":
         md = _convert_rtf(src, progress_cb)
     elif ext == ".xml":
@@ -795,7 +877,25 @@ def convert(
     # Post-process: collapse excessive blank lines
     md = re.sub(r"\n{3,}", "\n\n", md)
 
-    out_path.write_text(md, encoding="utf-8")
+    if image_assets and image_dir_name:
+        image_dir = out_dir / image_dir_name
+        image_dir.mkdir()
+        try:
+            for filename, image_data in image_assets.items():
+                (image_dir / filename).write_bytes(image_data)
+            out_path.write_text(md, encoding="utf-8")
+        except Exception:
+            for filename in image_assets:
+                image_path = image_dir / filename
+                if image_path.exists():
+                    image_path.unlink()
+            try:
+                image_dir.rmdir()
+            except OSError:
+                pass
+            raise
+    else:
+        out_path.write_text(md, encoding="utf-8")
 
     if progress_cb:
         if not md.strip():

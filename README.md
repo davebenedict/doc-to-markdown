@@ -97,6 +97,8 @@ Open `http://localhost:5000` in a browser.
 | `.epub` | Converts chapters to Markdown sections |
 | `.rtf` `.odt` `.xml` `.json` | Extracts and formats document content as Markdown |
 
+For HTML and EPUB files, embedded base64 images are extracted into a sibling `<markdown-file-stem>_images/` folder and referenced by relative Markdown links. Desktop apps save the Markdown and image folder together; the optional browser app returns a ZIP containing both when images are extracted. Local or remote image links remain unchanged. An agent can use the extracted files if it has access to them and image-reading tools; a text-only agent may still need OCR or captions.
+
 The token-savings display uses `tiktoken` when available and a file-size estimate otherwise.
 
 ## OCR prerequisites

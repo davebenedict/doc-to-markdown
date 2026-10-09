@@ -442,6 +442,7 @@
         const fileCount = document.getElementById('fileCount');
         const formatsList = document.getElementById('formatsList');
         const formatsContent = document.getElementById('formatsContent');
+        const formatsDropdown = document.querySelector('.formats-dropdown');
         const outputDir = document.getElementById('outputDir');
         const rememberDir = document.getElementById('rememberDir');
         const datetimeSubfolder = document.getElementById('datetimeSubfolder');
@@ -652,6 +653,7 @@
             }
         }
 
+        formatsDropdown.addEventListener('click', event => event.stopPropagation());
         dropZone.addEventListener('click', () => fileInput.click());
         
         dropZone.addEventListener('dragover', (e) => {
