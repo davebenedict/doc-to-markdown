@@ -28,6 +28,7 @@ from functools import lru_cache
 from io import BytesIO
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Callable
@@ -48,10 +49,16 @@ def _require(pkg_name: str, import_name: str | None = None):
         )
 
 
+class OCRUnavailableError(RuntimeError):
+    pass
+
+
 def friendly_error_message(exc: Exception) -> str:
     message = str(exc).strip()
     error_name = type(exc).__name__
 
+    if isinstance(exc, OCRUnavailableError):
+        return message
     if error_name == "TesseractNotFoundError":
         return "Tesseract OCR was not found. Install Tesseract, ensure the `tesseract` command is on PATH, then restart the app. On macOS, run `brew install tesseract`."
     if isinstance(exc, ImportError):
@@ -88,6 +95,7 @@ SUPPORTED_EXTENSIONS = {
     ".xlsx", ".xls", ".csv", ".pptx",
     ".epub", ".rtf", ".xml", ".json", ".odt",
 }
+OCR_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp"}
 OCR_TEXT_THRESHOLD = 50  # characters per page below which we treat PDF as scanned
 
 # Maps extension -> pip install hint for any optional dep missing at startup.
@@ -171,6 +179,8 @@ def _convert_pdf(
     source_text_complete = True
 
     try:
+        if any(len(page.get_text().strip()) < OCR_TEXT_THRESHOLD for page in doc):
+            _require_ocr_provider()
         for page_num, page in enumerate(doc):
             page_text = page.get_text().strip()
             if len(page_text) >= OCR_TEXT_THRESHOLD:
@@ -188,6 +198,10 @@ def _convert_pdf(
                 image_path, image_text = _save_image_asset(
                     image_data, ".png", image_assets, image_dir_name
                 )
+                if image_text is None:
+                    raise OCRUnavailableError(
+                        f"OCR failed for scanned PDF page {page_num + 1}; no Markdown file was written."
+                    )
                 page_parts = []
                 if image_path:
                     page_parts.append(f"![Scanned PDF page {page_num + 1}]({image_path})")
@@ -298,12 +312,15 @@ def _convert_image(
     image_assets: dict[str, bytes] | None = None,
     image_dir_name: str | None = None,
 ) -> str:
+    _require_ocr_provider()
     if progress_cb:
         progress_cb(f"Extracting image content from {path.name}…")
 
     image_path, image_text = _save_image_asset(
         path.read_bytes(), path.suffix.lower(), image_assets, image_dir_name
     )
+    if image_text is None:
+        raise OCRUnavailableError("OCR failed for this image; no Markdown file was written.")
     parts = []
     if image_path:
         parts.append(f"![{path.stem}]({image_path})")
@@ -682,6 +699,44 @@ def _surya_recognition_predictor():
     return RecognitionPredictor(SuryaInferenceManager())
 
 
+@lru_cache(maxsize=1)
+def _tesseract_is_available() -> bool:
+    try:
+        pytesseract = _require("pytesseract")
+        command = str(pytesseract.pytesseract.tesseract_cmd)
+        executable = shutil.which(command)
+        if executable is None and Path(command).is_file():
+            executable = command
+        if executable is None:
+            return False
+        pytesseract.pytesseract.tesseract_cmd = executable
+        pytesseract.get_tesseract_version()
+        return True
+    except Exception:
+        return False
+
+
+@lru_cache(maxsize=1)
+def _surya_is_available() -> bool:
+    try:
+        _surya_recognition_predictor()
+        return True
+    except Exception:
+        return False
+
+
+def _ocr_provider_available() -> bool:
+    return _tesseract_is_available() or _surya_is_available()
+
+
+def _require_ocr_provider() -> None:
+    if not _ocr_provider_available():
+        raise OCRUnavailableError(
+            "No working OCR provider is available. Install Tesseract and add it to PATH, "
+            "or install Surya OCR in this application's Python environment, then restart the app."
+        )
+
+
 _SURYA_INFERENCE_LOCK = threading.Lock()
 _OCR_WORKER_COUNT = 4
 _OCR_EXECUTOR = ThreadPoolExecutor(max_workers=_OCR_WORKER_COUNT)
@@ -759,6 +814,8 @@ def _ocr_image_bytes(image_data: bytes) -> str | None:
 
 
 def _recognize_image_bytes(image_data: bytes) -> str | None:
+    if not _ocr_provider_available():
+        return None
     try:
         Image = _require("Pillow", "PIL.Image")
         with Image.open(BytesIO(image_data)) as image:
@@ -777,6 +834,8 @@ def _recognize_image_bytes(image_data: bytes) -> str | None:
                     return text
             except Exception:
                 pass
+            if not _tesseract_is_available():
+                return None
             try:
                 pytesseract = _require("pytesseract")
                 return pytesseract.image_to_string(image, timeout=15).strip()
@@ -1085,6 +1144,8 @@ def convert(
             f"Unsupported file type '{ext}'. "
             f"Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
         )
+    if ext in OCR_IMAGE_EXTENSIONS:
+        _require_ocr_provider()
 
     # Determine output path
     out_dir = Path(output_dir).resolve() if output_dir else src.parent
@@ -1110,7 +1171,7 @@ def convert(
     # Route to converter
     if ext == ".pdf":
         md, source_text = _convert_pdf(src, progress_cb, image_assets, image_dir_name)
-    elif ext in {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp"}:
+    elif ext in OCR_IMAGE_EXTENSIONS:
         md = _convert_image(src, progress_cb, image_assets, image_dir_name)
     elif ext == ".docx":
         md = _convert_docx(src, progress_cb, image_assets, image_dir_name)

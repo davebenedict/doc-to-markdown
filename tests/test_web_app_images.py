@@ -49,7 +49,7 @@ def test_browser_download_includes_markdown_and_extracted_images(tmp_path, monke
         assert archive.read("images.html_images/image_001.gif") == base64.b64decode(encoded_image)
 
 
-def test_browser_download_preserves_scanned_pdf_page_without_ocr(tmp_path, monkeypatch):
+def test_browser_download_rejects_scanned_pdf_without_ocr(tmp_path, monkeypatch):
     fitz = pytest.importorskip("fitz")
     upload_dir = tmp_path / "upload"
     upload_dir.mkdir()
@@ -62,7 +62,7 @@ def test_browser_download_preserves_scanned_pdf_page_without_ocr(tmp_path, monke
     scanned_page.insert_text((72, 72), "tiny")
     pdf_bytes = document.tobytes()
     document.close()
-    monkeypatch.setattr(web_app.conv, "_ocr_image_bytes", lambda image_data: None)
+    monkeypatch.setattr(web_app.conv, "_ocr_provider_available", lambda: False)
 
     with web_app.app.test_client() as client:
         response = client.post(
@@ -70,10 +70,6 @@ def test_browser_download_preserves_scanned_pdf_page_without_ocr(tmp_path, monke
             data={"file": (BytesIO(pdf_bytes), "mixed.pdf")},
         )
 
-    assert response.status_code == 200
-    assert response.mimetype == "application/zip"
-    with ZipFile(BytesIO(response.data)) as archive:
-        assert "mixed.pdf.md" in archive.namelist()
-        assert "mixed.pdf_images/image_001.png" in archive.namelist()
-        markdown = archive.read("mixed.pdf.md").decode("utf-8")
-        assert "OCR text unavailable" in markdown
+    assert response.status_code == 500
+    assert "working OCR provider" in response.get_json()["error"]
+    assert not list(upload_dir.glob("*.md"))

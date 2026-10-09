@@ -65,6 +65,18 @@ class TestSupportedFormatsClick:
         assert "formData.append('relative_path', relativePath)" in template
 
 
+class TestWhyUseThisContent:
+    def test_explains_rag_structure_and_limits(self):
+        template_path = Path(__file__).parent.parent / "python" / "templates" / "index.html"
+        template = template_path.read_text(encoding="utf-8")
+
+        assert "Why prepare documents as Markdown for RAG?" in template
+        assert "Markdown headings and tables can preserve useful boundaries" in template
+        assert "token changes vary by source format and document" in template
+        assert "A text-only indexer needs OCR text to search image content" in template
+        assert "Actual retrieval quality depends on the downstream embedding" in template
+
+
 class TestMixedPdfExtraction:
     def test_scanned_page_is_ocrd_and_saved_with_its_image_asset(self, client, tmp_path, monkeypatch):
         import web_app
@@ -77,6 +89,7 @@ class TestMixedPdfExtraction:
         scanned_page.insert_text((72, 72), "tiny")
         pdf_bytes = document.tobytes()
         document.close()
+        monkeypatch.setattr(web_app.conv, "_ocr_provider_available", lambda: True)
         monkeypatch.setattr(web_app.conv, "_ocr_image_bytes", lambda image_data: "Recovered scan text")
 
         response = client.post("/convert", data={"file": (BytesIO(pdf_bytes), "mixed.pdf")})

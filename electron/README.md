@@ -6,7 +6,7 @@ Cross-platform desktop app with an Electron interface and a PyInstaller-bundled 
 
 - Node.js 18 or later to install, run, or build the Electron project.
 - Python 3.9 or later and the packages in `python/requirements.txt` to run from source or create a release.
-- Tesseract on the target computer for image and scanned-PDF OCR. It is an external system tool and is not bundled.
+- A working OCR provider is required for raster-image and scanned-PDF conversion. Tesseract is an external system tool and is not bundled; source builds may use Surya OCR when installed in the app's Python environment.
 
 The packaged installer bundles Python and the backend dependencies; end users do not need Python or pip packages installed.
 

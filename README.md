@@ -28,7 +28,7 @@ To build the standalone executable:
 py -m PyInstaller --noconfirm app.spec
 ```
 
-The executable is created at `dist\DocToMarkdown.exe`. OCR for scanned PDFs and images requires Tesseract to be installed separately and available on `PATH`.
+The executable is created at `dist\DocToMarkdown.exe`. Its image and scanned-PDF OCR requires Tesseract to be installed separately and available on `PATH`; source runs can alternatively use Surya OCR if installed in the app's Python environment.
 
 ## Electron app
 
@@ -87,8 +87,8 @@ Open `http://localhost:5000` in a browser.
 
 | Format | Conversion method |
 |--------|-------------------|
-| `.pdf` | PyMuPDF extracts text and renders low-text pages individually; OCR is attempted when available |
-| `.jpg` `.jpeg` `.png` `.tiff` `.tif` `.bmp` | Preserves the image asset and adds OCR text when available |
+| `.pdf` | PyMuPDF extracts text and renders low-text pages individually; scanned pages require a working OCR provider |
+| `.jpg` `.jpeg` `.png` `.tiff` `.tif` `.bmp` | Requires a working OCR provider to create Markdown |
 | `.docx` | Preserves headings, lists, and tables; extracts embedded images and OCR text when available |
 | `.html` `.htm` | Removes markup and converts structure to Markdown |
 | `.xlsx` | Converts worksheets to Markdown tables, preserving formulas and cached values when available |
@@ -98,7 +98,7 @@ Open `http://localhost:5000` in a browser.
 | `.epub` | Converts chapters to Markdown sections |
 | `.rtf` `.odt` `.xml` `.json` | Extracts and formats document content as Markdown |
 
-PDF page images, raster images, embedded DOCX/PPTX images, and embedded base64 images from HTML/EPUB are saved in a sibling `<markdown-file-stem>_images/` folder and linked from the Markdown. OCR text is included when an OCR provider is available; otherwise, the image asset is still preserved with a note. Desktop apps save the Markdown and image folder together; the optional browser app returns a ZIP containing both when assets were extracted. External HTML image links remain unchanged. OCR can recover text in an image, but it does not generate semantic captions for non-text diagrams; those need a vision-capable downstream RAG pipeline.
+Raster image files and scanned PDF pages require a working OCR provider; conversion stops without writing Markdown if OCR is unavailable or fails. Images embedded in DOCX/PPTX and HTML/EPUB are saved in a sibling `<markdown-file-stem>_images/` folder and linked from the Markdown; OCR text is added when available, otherwise the image is preserved with a note. Desktop apps save the Markdown and image folder together; the optional browser app returns a ZIP containing both when assets were extracted. External HTML image links remain unchanged. OCR can recover text in an image, but it does not generate semantic captions for non-text diagrams; those need a vision-capable downstream RAG pipeline.
 
 For PDFs, the token-savings display compares extracted/OCR text with Markdown using `tiktoken` when available. Other formats use a rough file-size estimate for the source baseline; this is an estimate, not a measure of RAG retrieval quality.
 

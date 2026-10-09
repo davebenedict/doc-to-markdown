@@ -260,6 +260,7 @@ class TestPdfPageExtraction:
     def test_mixed_pdf_uses_ocr_per_page_and_returns_extracted_baseline(self, tmp_path, monkeypatch):
         pdf_path = tmp_path / "mixed.pdf"
         self._create_mixed_pdf(pdf_path)
+        monkeypatch.setattr(conv, "_ocr_provider_available", lambda: True)
         monkeypatch.setattr(conv, "_ocr_image_bytes", lambda image_data: "Recovered scan text")
 
         output_path, source_text = conv.convert(
@@ -278,25 +279,16 @@ class TestPdfPageExtraction:
             "tiktoken cl100k_base" if conv.TIKTOKEN_AVAILABLE else "file bytes÷4"
         )
 
-    def test_scanned_page_is_preserved_when_ocr_is_unavailable(self, tmp_path, monkeypatch):
+    def test_scanned_pdf_is_rejected_when_ocr_is_unavailable(self, tmp_path, monkeypatch):
         pdf_path = tmp_path / "mixed.pdf"
         self._create_mixed_pdf(pdf_path)
-        monkeypatch.setattr(conv, "_ocr_image_bytes", lambda image_data: None)
+        output_dir = tmp_path / "converted"
+        monkeypatch.setattr(conv, "_ocr_provider_available", lambda: False)
 
-        output_path, source_text = conv.convert(
-            pdf_path,
-            output_dir=tmp_path / "converted",
-            return_text=True,
-        )
-        content = output_path.read_text(encoding="utf-8")
-        page_image = tmp_path / "converted" / "mixed.pdf_images" / "image_001.png"
+        with pytest.raises(conv.OCRUnavailableError, match="working OCR provider"):
+            conv.convert(pdf_path, output_dir=output_dir)
 
-        assert source_text is None
-        assert "OCR text unavailable" in content
-        assert page_image.exists()
-        stats = conv.token_stats(source_text, output_path, src=pdf_path)
-        assert stats["tiktoken_source_available"] is False
-        assert stats["method"] == "file bytes÷4"
+        assert not (output_dir / "mixed.pdf.md").exists()
 
 
 class TestOfficeImageChartAndFormulaExtraction:
@@ -777,3 +769,66 @@ class TestTiktokenAvailable:
 
     def test_matches_has_tiktoken(self):
         assert conv.TIKTOKEN_AVAILABLE == HAS_TIKTOKEN
+
+
+class TestRasterImagesRequireWorkingOCR:
+    def test_image_conversion_fails_without_a_working_ocr_provider(self, tmp_path, monkeypatch):
+        source = tmp_path / "scan.jpg"
+        source.write_bytes(b"not read without OCR")
+        output_dir = tmp_path / "converted"
+        monkeypatch.setattr(conv, "_ocr_provider_available", lambda: False)
+
+        with pytest.raises(conv.OCRUnavailableError, match="working OCR provider"):
+            conv.convert(source, output_dir=output_dir)
+
+        assert not output_dir.exists()
+
+    def test_image_conversion_does_not_write_markdown_if_ocr_fails(self, tmp_path, monkeypatch):
+        source = tmp_path / "scan.jpg"
+        source.write_bytes(b"image data")
+        output_dir = tmp_path / "converted"
+        monkeypatch.setattr(conv, "_ocr_provider_available", lambda: True)
+        monkeypatch.setattr(conv, "_save_image_asset", lambda *args: ("scan.jpg_images/image_001.jpg", None))
+
+        with pytest.raises(conv.OCRUnavailableError, match="OCR failed"):
+            conv.convert(source, output_dir=output_dir)
+
+        assert not (output_dir / "scan.jpg.md").exists()
+
+    def test_tesseract_probe_does_not_run_when_executable_is_missing(self, monkeypatch):
+        from types import SimpleNamespace
+
+        pytesseract = SimpleNamespace(
+            pytesseract=SimpleNamespace(tesseract_cmd="tesseract"),
+            get_tesseract_version=lambda: pytest.fail("Tesseract should not be spawned"),
+        )
+        monkeypatch.setattr(conv, "_require", lambda *_: pytesseract)
+        monkeypatch.setattr(conv.shutil, "which", lambda command: None)
+        conv._tesseract_is_available.cache_clear()
+
+        try:
+            assert conv._tesseract_is_available() is False
+        finally:
+            conv._tesseract_is_available.cache_clear()
+
+    def test_recognizer_does_not_call_tesseract_when_unavailable(self, monkeypatch):
+        image_module = pytest.importorskip("PIL.Image")
+        from io import BytesIO
+
+        image_data = BytesIO()
+        image_module.new("RGB", (64, 32), "white").save(image_data, format="PNG")
+
+        def unavailable_surya():
+            raise RuntimeError
+
+        monkeypatch.setattr(conv, "_surya_recognition_predictor", unavailable_surya)
+        monkeypatch.setattr(conv, "_tesseract_is_available", lambda: False)
+        require = conv._require
+
+        def require_without_tesseract(pkg_name, import_name=None):
+            if pkg_name == "pytesseract":
+                pytest.fail("Tesseract should not be invoked when unavailable")
+            return require(pkg_name, import_name)
+
+        monkeypatch.setattr(conv, "_require", require_without_tesseract)
+        assert conv._recognize_image_bytes(image_data.getvalue()) is None

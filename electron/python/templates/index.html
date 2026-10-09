@@ -632,7 +632,15 @@
         }
 
         function showWhyModal() {
-            alert('Converting to Markdown:\n\n• Clearer section and table structure for downstream chunking\n• Reduced markup noise; output size/token changes vary by document\n• OCR text is included when an OCR provider is available\n• Images and scanned pages are preserved as separate assets\n• A text-only indexer must ingest OCR text to search image content\n• Exact source/output token comparison is available for PDFs; other estimates are approximate');
+            alert(`Why prepare documents as Markdown for RAG?
+
+Markdown headings and tables can preserve useful boundaries for downstream chunkers. Cleaned content is inspectable and editable before it is indexed.
+
+Removing markup may reduce noise and output size, but token changes vary by source format and document.
+
+PDF page markers and sidecar image links preserve provenance and assets. A text-only indexer needs OCR text to search image content; it will not infer the meaning of non-text diagrams.
+
+Actual retrieval quality depends on the downstream embedding, chunking, and indexing pipeline and should be measured there.`);
         }
 
         function openFile(index) {
