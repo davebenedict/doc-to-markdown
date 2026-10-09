@@ -12,7 +12,6 @@ a = Analysis(
         "PIL",
         "PIL.Image",
         "pytesseract",
-        "pdf2image",
         "fitz",
         "docx",
         "markdownify",

@@ -6,8 +6,8 @@ Convert documents into clean Markdown for LLMs and RAG pipelines. The repository
 
 | App | Interface | Platforms | Runtime requirements |
 |-----|-----------|-----------|----------------------|
-| **Native Windows** | CustomTkinter desktop UI with drag-and-drop | Windows | The downloaded executable does not require Python. Tesseract and Poppler are needed for image/scanned-PDF OCR. |
-| **Electron** | Electron desktop window with a bundled Flask/Python backend | Windows, macOS, Linux | Packaged app needs no Python installation. Tesseract and Poppler are needed for OCR. Python and build dependencies are needed to run from source or create a release. |
+| **Native Windows** | CustomTkinter desktop UI with drag-and-drop | Windows | The downloaded executable does not require Python. Tesseract is needed for image/scanned-PDF OCR. |
+| **Electron** | Electron desktop window with a bundled Flask/Python backend | Windows, macOS, Linux | Packaged app needs no Python installation. Tesseract is needed for OCR. Python and build dependencies are needed to run from source or create a release. |
 
 Both desktop apps support document conversion, output-folder selection, token estimates, and Google Drive URL conversion. The Electron app saves conversions directly to the selected output folder; without one, it uses the user's Downloads folder. Its optional date subfolder groups output by date.
 
@@ -28,11 +28,11 @@ To build the standalone executable:
 py -m PyInstaller --noconfirm app.spec
 ```
 
-The executable is created at `dist\DocToMarkdown.exe`. OCR for scanned PDFs and images requires Tesseract and Poppler to be installed separately and available on `PATH`.
+The executable is created at `dist\DocToMarkdown.exe`. OCR for scanned PDFs and images requires Tesseract to be installed separately and available on `PATH`.
 
 ## Electron app
 
-The packaged Electron app includes a PyInstaller-bundled Flask backend and Python dependencies, so end users do not need to install Python or pip packages. Tesseract and Poppler remain separate system prerequisites for OCR.
+The packaged Electron app includes a PyInstaller-bundled Flask backend and Python dependencies, so end users do not need to install Python or pip packages. Tesseract remains a separate system prerequisite for OCR.
 
 To run from source on Windows, install the Python/build dependencies and Node packages from the repository root:
 
@@ -50,14 +50,14 @@ To build a release, run `npm run build` from `electron\electron`. The build scri
 - macOS: DMG
 - Linux: AppImage and DEB
 
-Build on the same operating system and architecture as the target. Install Tesseract and Poppler on target computers only if OCR is needed; these system tools are not bundled.
+Build on the same operating system and architecture as the target. Install Tesseract on target computers only if OCR is needed; it is not bundled.
 
 ### macOS setup (Electron)
 
-Install Homebrew if needed, then use Terminal to install Node.js, Python, Tesseract, and Poppler:
+Install Homebrew if needed, then use Terminal to install Node.js, Python, and Tesseract:
 
 ```sh
-brew install node python@3.13 tesseract poppler
+brew install node python@3.13 tesseract
 ```
 
 From the repository root, install the Python build dependencies and run the app in development mode:
@@ -87,26 +87,25 @@ Open `http://localhost:5000` in a browser.
 
 | Format | Conversion method |
 |--------|-------------------|
-| `.pdf` | PyMuPDF text extraction; scanned pages use Poppler and Tesseract OCR |
-| `.jpg` `.jpeg` `.png` `.tiff` `.tif` `.bmp` | Tesseract OCR |
-| `.docx` | Preserves headings, lists, and tables |
+| `.pdf` | PyMuPDF extracts text and renders low-text pages individually; OCR is attempted when available |
+| `.jpg` `.jpeg` `.png` `.tiff` `.tif` `.bmp` | Preserves the image asset and adds OCR text when available |
+| `.docx` | Preserves headings, lists, and tables; extracts embedded images and OCR text when available |
 | `.html` `.htm` | Removes markup and converts structure to Markdown |
-| `.xlsx` `.xls` | Converts worksheets to Markdown tables |
-| `.pptx` | Converts slides to Markdown sections |
+| `.xlsx` | Converts worksheets to Markdown tables, preserving formulas and cached values when available |
+| `.xls` | Converts stored cell values to Markdown tables; formula expressions are unavailable through the current reader |
+| `.pptx` | Converts slides to Markdown sections, extracts native chart data to tables, and preserves images with OCR text when available |
 | `.csv` | Converts rows to Markdown tables |
 | `.epub` | Converts chapters to Markdown sections |
 | `.rtf` `.odt` `.xml` `.json` | Extracts and formats document content as Markdown |
 
-For HTML and EPUB files, embedded base64 images are extracted into a sibling `<markdown-file-stem>_images/` folder and referenced by relative Markdown links. Desktop apps save the Markdown and image folder together; the optional browser app returns a ZIP containing both when images are extracted. Local or remote image links remain unchanged. An agent can use the extracted files if it has access to them and image-reading tools; a text-only agent may still need OCR or captions.
+PDF page images, raster images, embedded DOCX/PPTX images, and embedded base64 images from HTML/EPUB are saved in a sibling `<markdown-file-stem>_images/` folder and linked from the Markdown. OCR text is included when an OCR provider is available; otherwise, the image asset is still preserved with a note. Desktop apps save the Markdown and image folder together; the optional browser app returns a ZIP containing both when assets were extracted. External HTML image links remain unchanged. OCR can recover text in an image, but it does not generate semantic captions for non-text diagrams; those need a vision-capable downstream RAG pipeline.
 
-The token-savings display uses `tiktoken` when available and a file-size estimate otherwise.
+For PDFs, the token-savings display compares extracted/OCR text with Markdown using `tiktoken` when available. Other formats use a rough file-size estimate for the source baseline; this is an estimate, not a measure of RAG retrieval quality.
 
 ## OCR prerequisites
 
 - **Tesseract OCR:** [Windows installer](https://github.com/UB-Mannheim/tesseract/wiki). Add the installation directory to `PATH`.
-- **Poppler:** [Windows releases](https://github.com/oschwartz10612/poppler-windows/releases). Add its `Library\bin` directory to `PATH`.
-
-Verify installations with `tesseract --version` and `pdftoppm -v`.
+Verify the installation with `tesseract --version`.
 
 ## Project layout
 

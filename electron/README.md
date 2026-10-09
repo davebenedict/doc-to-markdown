@@ -6,7 +6,7 @@ Cross-platform desktop app with an Electron interface and a PyInstaller-bundled 
 
 - Node.js 18 or later to install, run, or build the Electron project.
 - Python 3.9 or later and the packages in `python/requirements.txt` to run from source or create a release.
-- Tesseract and Poppler on the target computer for image and scanned-PDF OCR. These are external system tools and are not bundled.
+- Tesseract on the target computer for image and scanned-PDF OCR. It is an external system tool and is not bundled.
 
 The packaged installer bundles Python and the backend dependencies; end users do not need Python or pip packages installed.
 
@@ -54,7 +54,7 @@ Artifacts are written to `electron/dist/` relative to this directory:
 - Electron provides the desktop window, native file dialogs, and file open/reveal actions.
 - The packaged app launches the bundled Flask backend; development mode launches Python from `python/web_app.py`.
 - Converted files are saved to the selected output folder, or Downloads if none is selected.
-- Tesseract and Poppler must be installed separately for OCR.
+- Tesseract must be installed separately for OCR.
 
 ## Project structure
 

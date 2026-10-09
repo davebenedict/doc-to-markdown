@@ -1,6 +1,6 @@
 {
   "name": "doc2md-electron",
-  "version": "2.0.12",
+  "version": "3.0.0",
   "description": "Doc to Markdown Converter - Cross-platform Electron version",
   "main": "main.js",
   "scripts": {
@@ -30,7 +30,9 @@
       {
         "from": "../python/dist/doc2md-backend",
         "to": "backend",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
@@ -38,11 +40,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },

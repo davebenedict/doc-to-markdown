@@ -1,6 +1,6 @@
-# Unit Tests for Doc to Markdown Converter v2.0
+# Unit Tests for Doc to Markdown Converter v3.0.0
 
-This directory contains unit tests for the Electron v2.0 Flask backend and conversion logic.
+This directory contains unit tests for the Electron v3.0.0 Flask backend and conversion logic.
 
 ## Test Files
 

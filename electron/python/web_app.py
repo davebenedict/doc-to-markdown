@@ -4,7 +4,7 @@ web_app.py - Simple Flask web interface for cross-platform document conversion
 
 import logging
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import tempfile
 import json
 import os
@@ -14,6 +14,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(message)s')
 logger = logging.getLogger(__name__)
 
 from flask import Flask, render_template, request, jsonify
+from werkzeug.utils import secure_filename
 import converter as conv
 
 app = Flask(__name__)
@@ -51,6 +52,19 @@ def _get_output_dir():
         output_dir /= datetime.now().strftime("%Y%m%d")
     return output_dir
 
+
+def _safe_upload_parts(file_name, relative_path=None):
+    raw_path = (relative_path or file_name).replace("\\", "/")
+    parts = []
+    for part in PurePosixPath(raw_path).parts:
+        safe_part = secure_filename(part)
+        if safe_part and safe_part not in {".", ".."}:
+            parts.append(safe_part)
+    if not parts:
+        parts = [secure_filename(Path(file_name).name) or "upload"]
+    return Path(*parts[:-1]), parts[-1]
+
+
 @app.route('/')
 def index():
     return render_template('index.html', app_version=os.environ.get('DOC2MD_VERSION', '2.0'))
@@ -87,21 +101,26 @@ def convert_file():
     # Get token mode from request
     token_mode = request.form.get('token_mode', 'filesize')
 
-    # Create temp directory and save file
     temp_dir = Path(tempfile.mkdtemp())
-    tmp_path = temp_dir / file.filename
-    file.save(str(tmp_path))
-
     output_path = None
+    tmp_path = None
     try:
-        # Convert the file with return_text=True to get source text
-        output_path, src_text = conv.convert(tmp_path, output_dir=_get_output_dir(), return_text=True)
+        relative_dir, safe_name = _safe_upload_parts(
+            file.filename, request.form.get("relative_path")
+        )
+        tmp_path = temp_dir / safe_name
+        file.save(str(tmp_path))
+        output_path, src_text = conv.convert(
+            tmp_path,
+            output_dir=_get_output_dir() / relative_dir,
+            return_text=True,
+        )
 
         # Calculate token stats
         stats = conv.token_stats(src_text, output_path, src=tmp_path)
 
         # Use appropriate token count based on mode
-        if token_mode == 'tiktoken' and stats.get('tiktoken_available'):
+        if token_mode == 'tiktoken' and stats.get('tiktoken_source_available'):
             tokens = stats.get('tiktoken_out', 0)
             savings = stats.get('tiktoken_pct', 0)
         else:
@@ -120,7 +139,7 @@ def convert_file():
             'original_size': original_size,
             'converted_size': converted_size,
             'savings': savings,
-            'tokenizer': 'tiktoken' if (token_mode == 'tiktoken' and stats.get('tiktoken_available')) else 'file size'
+            'tokenizer': 'tiktoken' if (token_mode == 'tiktoken' and stats.get('tiktoken_source_available')) else 'file size (approx)'
         }
         global _converted_files
         _converted_files.append(file_info)
@@ -172,7 +191,7 @@ def convert_gdrive():
         stats = conv.token_stats(src_text, output_path, src=downloaded)
 
         # Use appropriate token count based on mode
-        if token_mode == 'tiktoken' and stats.get('tiktoken_available'):
+        if token_mode == 'tiktoken' and stats.get('tiktoken_source_available'):
             tokens = stats.get('tiktoken_out', 0)
             savings = stats.get('tiktoken_pct', 0)
         else:
@@ -191,7 +210,7 @@ def convert_gdrive():
             'original_size': original_size,
             'converted_size': converted_size,
             'savings': savings,
-            'tokenizer': 'tiktoken' if (token_mode == 'tiktoken' and stats.get('tiktoken_available')) else 'file size'
+            'tokenizer': 'tiktoken' if (token_mode == 'tiktoken' and stats.get('tiktoken_source_available')) else 'file size (approx)'
         }
         global _converted_files
         _converted_files.append(file_info)

@@ -50,6 +50,47 @@ class TestSupportedFormatsClick:
         assert "formatsDropdown.addEventListener('click', event => event.stopPropagation())" in template
         assert "dropZone.addEventListener('click', () => fileInput.click())" in template
 
+    def test_upload_waits_for_the_file_list_refresh(self):
+        template_path = Path(__file__).parent.parent / "python" / "templates" / "index.html"
+        template = template_path.read_text(encoding="utf-8")
+        assert "let convertedFilesRequestId = 0" in template
+        assert "if (requestId !== convertedFilesRequestId) return" in template
+        assert template.count("await loadConvertedFiles();") >= 2
+
+    def test_directory_drop_recurses_and_sends_relative_paths(self):
+        template_path = Path(__file__).parent.parent / "python" / "templates" / "index.html"
+        template = template_path.read_text(encoding="utf-8")
+        assert "webkitGetAsEntry" in template
+        assert "readDroppedEntry(entry" in template
+        assert "formData.append('relative_path', relativePath)" in template
+
+
+class TestMixedPdfExtraction:
+    def test_scanned_page_is_ocrd_and_saved_with_its_image_asset(self, client, tmp_path, monkeypatch):
+        import web_app
+
+        fitz = web_app.conv._require("PyMuPDF", "fitz")
+        document = fitz.open()
+        text_page = document.new_page()
+        text_page.insert_text((72, 72), "This searchable page has enough text to remain on the text extraction path.")
+        scanned_page = document.new_page()
+        scanned_page.insert_text((72, 72), "tiny")
+        pdf_bytes = document.tobytes()
+        document.close()
+        monkeypatch.setattr(web_app.conv, "_ocr_image_bytes", lambda image_data: "Recovered scan text")
+
+        response = client.post("/convert", data={"file": (BytesIO(pdf_bytes), "mixed.pdf")})
+
+        assert response.status_code == 200
+        output_path = Path(response.get_json()["file"]["path"])
+        output_dir = tmp_path / "converted"
+        image_path = output_dir / "mixed.pdf_images" / "image_001.png"
+        markdown = output_path.read_text(encoding="utf-8")
+        assert "searchable page" in markdown
+        assert "Recovered scan text" in markdown
+        assert "![Scanned PDF page 2](mixed.pdf_images/image_001.png)" in markdown
+        assert image_path.exists()
+
 
 class TestBase64ImageHandling:
     def test_base64_images_are_extracted_and_external_images_remain(self, tmp_path):
@@ -73,6 +114,48 @@ class TestBase64ImageHandling:
         assert encoded_image not in content
         assert image_path.read_bytes() == base64.b64decode(encoded_image)
         assert "![Linked diagram](images/diagram.png)" in content
+
+
+class TestConsecutiveUploads:
+    def test_two_conversions_are_both_present_in_the_file_list(self, client):
+        for filename, content in (
+            ("first.csv", b"name,value\nAlpha,1\n"),
+            ("second.csv", b"name,value\nBeta,2\n"),
+        ):
+            response = client.post("/convert", data={"file": (BytesIO(content), filename)})
+            assert response.status_code == 200
+            assert response.get_json()["success"] is True
+
+        files = client.get("/converted-files").get_json()
+        assert {file["name"] for file in files} == {"first.csv.md", "second.csv.md"}
+
+    def test_directory_relative_path_is_kept_inside_output_folder(self, client, tmp_path):
+        response = client.post(
+            "/convert",
+            data={
+                "file": (BytesIO(b"name,value\nAlpha,1\n"), "first.csv"),
+                "relative_path": "dataset/subfolder/first.csv",
+            },
+        )
+
+        assert response.status_code == 200
+        output_path = Path(response.get_json()["file"]["path"]).resolve()
+        expected_path = (tmp_path / "converted" / "dataset" / "subfolder" / "first.csv.md").resolve()
+        assert output_path == expected_path
+        assert output_path.is_relative_to((tmp_path / "converted").resolve())
+
+    def test_directory_path_traversal_is_sanitized(self, client, tmp_path):
+        response = client.post(
+            "/convert",
+            data={
+                "file": (BytesIO(b"name,value\nAlpha,1\n"), "first.csv"),
+                "relative_path": "../../outside/first.csv",
+            },
+        )
+
+        assert response.status_code == 200
+        output_path = Path(response.get_json()["file"]["path"]).resolve()
+        assert output_path.is_relative_to((tmp_path / "converted").resolve())
 
 
 class TestConfigEndpoints:
@@ -167,8 +250,6 @@ class TestTokenCountEndpoint:
 class TestTokenizerIndicator:
     @pytest.mark.parametrize('token_mode', ['tiktoken', 'filesize'])
     def test_convert_response_includes_tokenizer(self, client, token_mode):
-        import web_app
-
         response = client.post(
             '/convert',
             data={
@@ -179,8 +260,7 @@ class TestTokenizerIndicator:
 
         assert response.status_code == 200
         file_info = response.get_json()['file']
-        expected = 'tiktoken' if token_mode == 'tiktoken' and web_app.conv.TIKTOKEN_AVAILABLE else 'file size'
-        assert file_info['tokenizer'] == expected
+        assert file_info['tokenizer'] == 'file size (approx)'
 
 
 class TestFriendlyConversionErrors:

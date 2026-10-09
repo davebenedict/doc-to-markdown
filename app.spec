@@ -20,7 +20,6 @@ a = Analysis(
         'PIL.Image',
         'PIL.ImageTk',
         'pytesseract',
-        'pdf2image',
         'fitz',
         'docx',
         'markdownify',

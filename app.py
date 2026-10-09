@@ -82,12 +82,18 @@ def _format_size(bytes: int) -> str:
     i = int(math.log(bytes, k))
     return f"{bytes / (k ** i):.1f} {sizes[i]}"
 
-def _badge_parts(pct: int | None, out_tokens: int) -> tuple[str, str, str]:
-    """Return (text, fg_color, text_color) for a token savings badge."""
+def _badge_parts(pct: int | None, out_tokens: int, approximate: bool = False) -> tuple[str, str, str]:
+    """Return (text, fg_color, text_color) for a token or estimate badge."""
     if out_tokens == 0:
         return "⚠ empty output", "#6b4a00", "#f0a500"
     if pct is None:
-        return "— tokens", "gray30", "gray60"
+        return ("— estimate" if approximate else "— tokens"), "gray30", "gray60"
+    if approximate:
+        if pct > 0:
+            return f"≈{pct}% est.", "#2d6a2d", "#7ec87e"
+        if pct < 0:
+            return f"≈{abs(pct)}% more", "#5a2d2d", "#e06c75"
+        return "≈ same (est.)", "gray30", "gray60"
     if pct > 0:
         return f"↓{pct}% tokens", "#2d6a2d", "#7ec87e"
     if pct < 0:
@@ -96,7 +102,7 @@ def _badge_parts(pct: int | None, out_tokens: int) -> tuple[str, str, str]:
 
 
 class FileRow(ctk.CTkFrame):
-    def __init__(self, master, md_path: Path, token_stats: dict | None = None, src_ext: str | None = None, original_size: int = 0, tokenizer_mode: str = "file size", **kwargs):
+    def __init__(self, master, md_path: Path, token_stats: dict | None = None, src_ext: str | None = None, original_size: int = 0, tokenizer_mode: str = "file size (approx)", **kwargs):
         super().__init__(master, corner_radius=6, **kwargs)
         self.md_path = md_path
         self._token_stats = token_stats
@@ -207,7 +213,7 @@ class FileRow(ctk.CTkFrame):
             tokenizer_label.grid(row=0, column=7, padx=(0, 4), pady=6, sticky="w")
             self._tokenizer_label = tokenizer_label
             self._hint = None
-            self.refresh_badge(use_tiktoken=token_stats.get("tiktoken_available", False))
+            self.refresh_badge(use_tiktoken=token_stats.get("tiktoken_source_available", False))
         else:
             # Placeholders to maintain grid structure
             ctk.CTkLabel(self, text="").grid(row=0, column=3, padx=(0, 4), pady=6)
@@ -248,18 +254,17 @@ class FileRow(ctk.CTkFrame):
         if self._badge is None or self._token_stats is None:
             return
         stats = self._token_stats
-        # Use the stored tokenizer mode instead of the global mode
-        if self._tokenizer_mode == "tiktoken" and stats.get("tiktoken_available"):
+        exact_baseline = self._tokenizer_mode == "tiktoken" and stats.get("tiktoken_source_available")
+        if exact_baseline:
             pct = stats.get("tiktoken_pct")
             out_tok = stats.get("tiktoken_out", 1)
             tokenizer = "tiktoken"
         else:
             pct = stats.get("fallback_pct")
             out_tok = stats.get("fallback_out", 1)
-            tokenizer = "file size"
-        
-        # Update badge with savings percentage
-        text, fg, tc = _badge_parts(pct, out_tok)
+            tokenizer = "file size (approx)"
+
+        text, fg, tc = _badge_parts(pct, out_tok, approximate=not exact_baseline)
         self._badge.configure(text=text, fg_color=fg, text_color=tc)
         
         # Update tokens label
@@ -543,7 +548,7 @@ class App(DnDTk):
 
         self._token_mode_btn = ctk.CTkSegmentedButton(
             files_hdr_row,
-            values=["tiktoken", "file size"],
+            values=["tiktoken", "file size (approx)"],
             command=self._on_token_mode_change,
             font=("Segoe UI", 10),
             width=160,
@@ -552,14 +557,14 @@ class App(DnDTk):
         if conv.TIKTOKEN_AVAILABLE:
             self._token_mode_btn.set("tiktoken")
         else:
-            self._token_mode_btn.set("file size")
+            self._token_mode_btn.set("file size (approx)")
             self._token_mode_btn.configure(state="disabled")
         self._token_mode_btn.pack(side="right")
 
         if not conv.TIKTOKEN_AVAILABLE:
             tiktoken_hint = ctk.CTkLabel(
                 files_hdr_row,
-                text="pip install tiktoken for exact counts",
+                text="Install tiktoken for exact PDF counts; other formats use estimates",
                 font=("Segoe UI", 9),
                 text_color="#e5a000",
             )
@@ -811,7 +816,7 @@ class App(DnDTk):
             )
             stats = conv.token_stats(src_text, out_path, src=downloaded)
             original_size = downloaded.stat().st_size if downloaded.exists() else 0
-            tokenizer_mode = "tiktoken" if self._use_tiktoken_var.get() and stats.get("tiktoken_available") else "file size"
+            tokenizer_mode = "tiktoken" if self._use_tiktoken_var.get() and stats.get("tiktoken_source_available") else "file size (approx)"
             self.after(0, self._add_file_row, out_path, stats, downloaded.suffix.lower(), original_size, tokenizer_mode)
             self._set_status(f"Done — {out_path.name}")
         except TimeoutError as exc:
@@ -917,7 +922,7 @@ class App(DnDTk):
                         )
                         stats = conv.token_stats(src_text, out_path, src=src)
                         original_size = src.stat().st_size if src.exists() else 0
-                        tokenizer_mode = "tiktoken" if self._use_tiktoken_var.get() and stats.get("tiktoken_available") else "file size"
+                        tokenizer_mode = "tiktoken" if self._use_tiktoken_var.get() and stats.get("tiktoken_source_available") else "file size (approx)"
                         self.after(0, self._add_file_row, out_path, stats, src.suffix.lower(), original_size, tokenizer_mode)
                         ok += 1
                     except ImportError as exc:
@@ -993,7 +998,7 @@ class App(DnDTk):
                 out_path, src_text = conv.convert(src, output_dir=output_dir, progress_cb=self._set_status, return_text=True)
                 stats = conv.token_stats(src_text, out_path, src=src)
                 original_size = src.stat().st_size if src.exists() else 0
-                tokenizer_mode = "tiktoken" if self._use_tiktoken_var.get() and stats.get("tiktoken_available") else "file size"
+                tokenizer_mode = "tiktoken" if self._use_tiktoken_var.get() and stats.get("tiktoken_source_available") else "file size (approx)"
                 self.after(0, self._add_file_row, out_path, stats, src.suffix.lower(), original_size, tokenizer_mode)
                 ok += 1
             except ImportError as exc:
@@ -1024,7 +1029,7 @@ class App(DnDTk):
     # UI update helpers (always called on main thread via after())
     # ------------------------------------------------------------------
 
-    def _add_file_row(self, md_path: Path, token_stats: dict | None = None, src_ext: str | None = None, original_size: int = 0, tokenizer_mode: str = "file size"):
+    def _add_file_row(self, md_path: Path, token_stats: dict | None = None, src_ext: str | None = None, original_size: int = 0, tokenizer_mode: str = "file size (approx)"):
         # Remove the "no files" placeholder if present
         if self._empty_label.winfo_exists():
             try:
@@ -1045,26 +1050,25 @@ class App(DnDTk):
             return f"  {label:<14}{note}{suffix}"
 
         lines = [
-            "Significant token savings (40–80%+) + smaller file size",
-            "  These formats carry heavy markup, tags, or binary overhead",
-            "  stripped on conversion — often 50–200x smaller as a file.",
-            "  Helps with platform upload limits (Claude 30MB, etc.).",
+            "Less markup and layout noise for selected formats",
+            "  Conversion removes formatting and structural overhead.",
+            "  Output size and token changes vary by source document.",
             "",
-            _fmt("HTML / HTM",   [".html", ".htm"],       "— tags, scripts, nav menus stripped"),
-            _fmt("EPUB",         [".epub"],                "— XML/CSS/nav boilerplate stripped"),
-            _fmt("XML",          [".xml"],                 "— all markup removed, text preserved"),
+            _fmt("HTML / HTM",   [".html", ".htm"],       "— structure converted; visible navigation may remain"),
+            _fmt("EPUB",         [".epub"],                "— chapter documents converted to Markdown"),
+            _fmt("XML",          [".xml"],                 "— element names and nesting retained"),
             _fmt("RTF",          [".rtf"],                 "— control words and formatting stripped"),
-            _fmt("XLSX / XLS",   [".xlsx", ".xls"],        "— cell structure compressed to tables"),
-            _fmt("PPTX",         [".pptx"],                "— slide layout markup removed"),
-            _fmt("CSV",          [".csv"],                 "— reformatted as clean markdown table"),
+            _fmt("XLSX / XLS",   [".xlsx", ".xls"],        "— tables; XLSX formulas retained when available"),
+            _fmt("PPTX",         [".pptx"],                "— slide sections and native chart tables"),
+            _fmt("CSV",          [".csv"],                 "— reformatted as clean Markdown table"),
             "",
             "─" * 52,
             "",
-            "Structural quality improvement (tokens similar)",
-            "  Token count stays about the same, but LLM accuracy improves.",
+            "Structure and content preservation (token changes vary)",
+            "  Markdown headings and tables retain useful document boundaries.",
             "",
-            _fmt("PDF",          [".pdf"],                 "— text extracted, layout noise removed"),
-            _fmt("DOCX",         [".docx"],                "— heading hierarchy and tables preserved"),
+            _fmt("PDF",          [".pdf"],                 "— per-page text/OCR; page images retained if OCR unavailable"),
+            _fmt("DOCX",         [".docx"],                "— headings, tables, images, and image OCR retained"),
             _fmt("ODT",          [".odt"],                 "— headings and paragraphs preserved"),
             _fmt("JSON",         [".json"],                "— pretty-printed as fenced code block"),
             "",
@@ -1088,41 +1092,21 @@ class App(DnDTk):
 
     def _show_why(self):
         msg = (
-            "Why convert to Markdown even when token counts look similar?\n"
+            "Why prepare documents as Markdown for RAG?\n"
             "\n"
-            "✓  Better LLM comprehension\n"
-            "    LLMs parse Markdown structure natively. A PDF table becomes\n"
-            "    garbled prose after extraction; the same table as | col | col |\n"
-            "    is unambiguous. The model reasons better on clean structure.\n"
+            "Markdown headings and tables can preserve useful boundaries\n"
+            "for downstream chunkers. Cleaned content is inspectable and\n"
+            "editable before it is indexed.\n"
             "\n"
-            "✓  Dramatically better RAG chunking\n"
-            "    RAG pipelines split documents into chunks. PDFs split\n"
-            "    arbitrarily — mid-sentence or mid-table. Markdown splits\n"
-            "    cleanly on ## headings, giving higher-quality retrieval\n"
-            "    and fewer hallucinations.\n"
+            "Removing markup may reduce noise and output size, but token\n"
+            "changes vary by source format and document.\n"
             "\n"
-            "✓  You control what the LLM sees\n"
-            "    Every tool re-extracts PDFs differently. The Markdown is a\n"
-            "    canonical, inspectable version you can review and correct\n"
-            "    before it reaches the model.\n"
+            "PDF page markers and sidecar image links preserve provenance\n"
+            "and assets. A text-only indexer needs OCR text to search image\n"
+            "content; it will not infer the meaning of non-text diagrams.\n"
             "\n"
-            "✓  Real token savings for HTML, Excel, and PPTX\n"
-            "    Stripping HTML tags, layout markup, and slide structure\n"
-            "    typically saves 40–80% of tokens for those formats.\n"
-            "\n"
-            "✓  Portable and reusable\n"
-            "    One Markdown file works in NotebookLM, ChatGPT, Claude,\n"
-            "    LangChain, LlamaIndex — no re-extraction on each use.\n"
-            "\n"
-            "✓  Bypass file size limits\n"
-            "    A 50MB PDF may contain 48MB of fonts, images, and binary\n"
-            "    encoding — the actual text is often under 1MB. The markdown\n"
-            "    version can be 50–200x smaller as a file, letting you upload\n"
-            "    documents that would otherwise hit platform limits:\n"
-            "      NotebookLM  25M token cap across all sources\n"
-            "      Claude      30MB per file\n"
-            "      ChatGPT     512MB per file (images bloat PDFs fast)\n"
-            "      Self-hosted RAG stacks often cap at 10–20MB per file"
+            "Actual retrieval quality depends on the downstream embedding,\n"
+            "chunking, and indexing pipeline and should be measured there."
         )
         messagebox.showinfo("Why convert to Markdown?", msg)
 

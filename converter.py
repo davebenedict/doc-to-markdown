@@ -2,7 +2,7 @@
 converter.py - Document-to-Markdown conversion logic.
 
 Supported formats:
-  .pdf              - text-layer (PyMuPDF) or scanned (pdf2image + Tesseract OCR)
+  .pdf              - text-layer (PyMuPDF) or per-page OCR from PyMuPDF-rendered images
   .jpg/.jpeg/.png/.tiff/.tif/.bmp  - Tesseract OCR
   .docx             - python-docx (heading styles, lists, tables)
   .html/.htm        - markdownify
@@ -21,6 +21,11 @@ from __future__ import annotations
 import base64
 import binascii
 import csv
+import hashlib
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
+from io import BytesIO
 import os
 import re
 import sys
@@ -49,10 +54,6 @@ def friendly_error_message(exc: Exception) -> str:
 
     if error_name == "TesseractNotFoundError":
         return "Tesseract OCR was not found. Install Tesseract, ensure the `tesseract` command is on PATH, then restart the app. On macOS, run `brew install tesseract`."
-    if error_name == "PDFInfoNotInstalledError":
-        return "Poppler was not found. Install Poppler and ensure `pdfinfo` and `pdftoppm` are on PATH, then restart the app. On macOS, run `brew install poppler`."
-    if error_name == "PDFPageCountError":
-        return "Could not read the PDF page count. Check that the PDF is valid; scanned PDFs also require Poppler (`pdfinfo` and `pdftoppm`) on PATH."
     if isinstance(exc, ImportError):
         match = re.search(r"Required package '([^']+)' is not installed", message)
         if not match:
@@ -71,7 +72,7 @@ def friendly_error_message(exc: Exception) -> str:
     if isinstance(exc, PermissionError):
         return "Access was denied while reading a file or writing the output folder. Choose a folder where you have write permission and close the file if it is open elsewhere."
     if isinstance(exc, FileNotFoundError):
-        return f"A file or required program was not found. Check the selected path; for OCR, ensure Tesseract and Poppler are installed and on PATH. Details: {message}"
+        return f"A file or required program was not found. Check the selected path; OCR needs Tesseract on PATH. Details: {message}"
     if isinstance(exc, OSError):
         return f"A system error prevented conversion. Check file paths, output-folder permissions, and required OCR tools. Details: {message}"
     return message or "An unexpected error prevented conversion."
@@ -156,59 +157,103 @@ _configure_tesseract()
 # PDF conversion
 # ---------------------------------------------------------------------------
 
-def _convert_pdf(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
+def _convert_pdf(
+    path: Path,
+    progress_cb: Callable[[str], None] | None = None,
+    image_assets: dict[str, bytes] | None = None,
+    image_dir_name: str | None = None,
+) -> tuple[str, str | None]:
     fitz = _require("PyMuPDF", "fitz")
     doc = fitz.open(str(path))
     total_pages = len(doc)
+    markdown_parts: list[str] = []
+    source_parts: list[str] = []
+    source_text_complete = True
 
-    # Probe first few pages for text to decide strategy
-    sample_text = ""
-    for i in range(min(3, total_pages)):
-        sample_text += doc[i].get_text()
+    try:
+        for page_num, page in enumerate(doc):
+            page_text = page.get_text().strip()
+            if len(page_text) >= OCR_TEXT_THRESHOLD:
+                page_markdown, image_texts, page_source_complete = _pdf_text_layer_page(
+                    page, page_num, progress_cb, image_assets, image_dir_name
+                )
+                source_parts.append(page_text)
+                source_parts.extend(image_texts)
+                source_text_complete = source_text_complete and page_source_complete
+            else:
+                if progress_cb:
+                    progress_cb(f"Rendering scanned page {page_num + 1}/{total_pages}…")
+                pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                image_data = pixmap.tobytes("png")
+                image_path, image_text = _save_image_asset(
+                    image_data, ".png", image_assets, image_dir_name
+                )
+                page_parts = []
+                if image_path:
+                    page_parts.append(f"![Scanned PDF page {page_num + 1}]({image_path})")
+                if image_text:
+                    if page_text and page_text not in image_text:
+                        page_parts.append(page_text)
+                        source_parts.append(page_text)
+                    page_parts.append(f"OCR text: {image_text}")
+                    source_parts.append(image_text)
+                else:
+                    source_text_complete = False
+                    if page_text:
+                        page_parts.append(page_text)
+                        source_parts.append(page_text)
+                    if image_path:
+                        note = "OCR text unavailable" if image_text is None else "No text recognized by OCR"
+                        page_parts.append(f"{note}; inspect the linked page image.")
+                page_markdown = "\n\n".join(page_parts)
 
-    if len(sample_text.strip()) >= OCR_TEXT_THRESHOLD:
-        return _pdf_text_layer(doc, total_pages, progress_cb)
-    else:
+            if page_markdown:
+                markdown_parts.append(page_markdown)
+            if total_pages > 1:
+                markdown_parts.append(f"\n\n---\n<!-- Page {page_num + 1} -->\n")
+    finally:
         doc.close()
-        return _pdf_ocr(path, total_pages, progress_cb)
+
+    source_text = "\n\n".join(source_parts) if source_text_complete else None
+    return "\n".join(markdown_parts), source_text
 
 
-def _pdf_text_layer(doc, total_pages: int, progress_cb) -> str:
-    fitz = _require("PyMuPDF", "fitz")
-    parts: list[str] = []
+def _pdf_text_layer_page(
+    page,
+    page_num: int,
+    progress_cb: Callable[[str], None] | None,
+    image_assets: dict[str, bytes] | None,
+    image_dir_name: str | None,
+) -> tuple[str, list[str], bool]:
+    if progress_cb:
+        progress_cb(f"Extracting page {page_num + 1} text…")
 
-    for page_num in range(total_pages):
-        if progress_cb:
-            progress_cb(f"Extracting page {page_num + 1}/{total_pages}…")
+    blocks = page.get_text("dict")["blocks"]
+    page_lines: list[str] = []
+    image_texts: list[str] = []
+    source_text_complete = True
 
-        page = doc[page_num]
-        blocks = page.get_text("dict")["blocks"]
-        page_lines: list[str] = []
+    all_sizes: list[float] = []
+    for block in blocks:
+        if block.get("type") != 0:
+            continue
+        for line in block.get("lines", []):
+            for span in line.get("spans", []):
+                if span.get("size"):
+                    all_sizes.append(span["size"])
 
-        # Collect font sizes for heading inference
-        all_sizes: list[float] = []
-        for block in blocks:
-            if block.get("type") != 0:
-                continue
-            for line in block.get("lines", []):
-                for span in line.get("spans", []):
-                    if span.get("size"):
-                        all_sizes.append(span["size"])
+    body_size = sorted(all_sizes)[len(all_sizes) // 2] if all_sizes else 12.0
 
-        body_size = sorted(all_sizes)[len(all_sizes) // 2] if all_sizes else 12.0
-
-        for block in blocks:
-            if block.get("type") != 0:
-                continue
+    for block in blocks:
+        if block.get("type") == 0:
             for line in block.get("lines", []):
                 line_text = ""
                 max_size = 0.0
                 bold = False
                 for span in line.get("spans", []):
                     line_text += span.get("text", "")
-                    sz = span.get("size", 0)
-                    if sz > max_size:
-                        max_size = sz
+                    size = span.get("size", 0)
+                    max_size = max(max_size, size)
                     if span.get("flags", 0) & 2 ** 4:
                         bold = True
 
@@ -223,91 +268,52 @@ def _pdf_text_layer(doc, total_pages: int, progress_cb) -> str:
                     line_text = f"## {line_text}"
                 elif ratio >= 1.1:
                     line_text = f"### {line_text}"
-
                 page_lines.append(line_text)
+        elif block.get("type") == 1 and block.get("image"):
+            extension = block.get("ext", "png")
+            image_path, image_text = _save_image_asset(
+                block["image"], extension, image_assets, image_dir_name
+            )
+            if image_path:
+                page_lines.append(f"![Image on PDF page {page_num + 1}]({image_path})")
+            if image_text:
+                page_lines.append(f"OCR text: {image_text}")
+                image_texts.append(image_text)
+            else:
+                source_text_complete = False
+                if image_path:
+                    note = "OCR text unavailable" if image_text is None else "No text recognized by OCR"
+                    page_lines.append(f"{note}; inspect the linked image.")
 
-        if page_lines:
-            parts.append("\n".join(page_lines))
-            if total_pages > 1:
-                parts.append(f"\n\n---\n<!-- Page {page_num + 1} -->\n")
-
-    doc.close()
-    return "\n".join(parts)
-
-
-def _pdf_ocr(path: Path, total_pages: int, progress_cb) -> str:
-    pdf2image = _require("pdf2image")
-    Image = _require("Pillow", "PIL.Image")
-
-    parts: list[str] = []
-
-    images = pdf2image.convert_from_path(str(path))
-
-    # Try Surya OCR first if available (better accuracy)
-    try:
-        from surya.inference import SuryaInferenceManager
-        from surya.recognition import RecognitionPredictor
-        manager = SuryaInferenceManager()
-        recognition_predictor = RecognitionPredictor(manager)
-
-        if progress_cb:
-            progress_cb(f"Running Surya OCR on {len(images)} pages…")
-
-        predictions = recognition_predictor(images)
-        for i, pred in enumerate(predictions):
-            if progress_cb:
-                progress_cb(f"OCR page {i + 1}/{len(images)}…")
-            text_lines = []
-            for block in pred.blocks:
-                if hasattr(block, "text"):
-                    text_lines.append(block.text)
-            parts.append("\n".join(text_lines).strip())
-            if len(images) > 1:
-                parts.append(f"\n\n---\n<!-- Page {i + 1} -->\n")
-    except (ImportError, Exception):
-        # Fall back to Tesseract
-        pytesseract = _require("pytesseract")
-        for i, img in enumerate(images):
-            if progress_cb:
-                progress_cb(f"OCR page {i + 1}/{len(images)}…")
-            text = pytesseract.image_to_string(img)
-            parts.append(text.strip())
-            if len(images) > 1:
-                parts.append(f"\n\n---\n<!-- Page {i + 1} -->\n")
-
-    return "\n".join(parts)
+    return "\n".join(page_lines), image_texts, source_text_complete
 
 
 # ---------------------------------------------------------------------------
 # Image conversion (OCR)
 # ---------------------------------------------------------------------------
 
-def _convert_image(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
-    Image = _require("Pillow", "PIL.Image")
-
+def _convert_image(
+    path: Path,
+    progress_cb: Callable[[str], None] | None = None,
+    image_assets: dict[str, bytes] | None = None,
+    image_dir_name: str | None = None,
+) -> str:
     if progress_cb:
-        progress_cb(f"Running OCR on {path.name}…")
+        progress_cb(f"Extracting image content from {path.name}…")
 
-    img = Image.open(str(path))
-
-    # Try Surya OCR first if available (better accuracy)
-    try:
-        from surya.inference import SuryaInferenceManager
-        from surya.recognition import RecognitionPredictor
-        manager = SuryaInferenceManager()
-        recognition_predictor = RecognitionPredictor(manager)
-        predictions = recognition_predictor([img])
-        # Extract text from predictions
-        text_lines = []
-        for pred in predictions:
-            for block in pred.blocks:
-                if hasattr(block, "text"):
-                    text_lines.append(block.text)
-        return "\n".join(text_lines).strip()
-    except (ImportError, Exception):
-        # Fall back to Tesseract
-        pytesseract = _require("pytesseract")
-        return pytesseract.image_to_string(img).strip()
+    image_path, image_text = _save_image_asset(
+        path.read_bytes(), path.suffix.lower(), image_assets, image_dir_name
+    )
+    parts = []
+    if image_path:
+        parts.append(f"![{path.stem}]({image_path})")
+    if image_text:
+        parts.append(f"OCR text: {image_text}")
+    elif image_text is None:
+        parts.append("OCR text unavailable; inspect the image asset." if image_path else "OCR text unavailable.")
+    else:
+        parts.append("No text recognized by OCR; inspect the image asset." if image_path else "No text recognized by OCR.")
+    return "\n\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +330,12 @@ _HEADING_PREFIX = {
 }
 
 
-def _convert_docx(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
+def _convert_docx(
+    path: Path,
+    progress_cb: Callable[[str], None] | None = None,
+    image_assets: dict[str, bytes] | None = None,
+    image_dir_name: str | None = None,
+) -> str:
     docx = _require("python-docx", "docx")
     Document = docx.Document
 
@@ -364,7 +375,37 @@ def _convert_docx(path: Path, progress_cb: Callable[[str], None] | None = None) 
                 continue
             parts.append(_table_to_md(tbl))
 
+    if image_assets is not None and image_dir_name is not None:
+        image_parts = _docx_embedded_images(doc, image_assets, image_dir_name)
+        if image_parts:
+            parts.extend(["## Embedded images", *image_parts])
+
     return "\n".join(parts)
+
+
+def _docx_embedded_images(doc, image_assets: dict[str, bytes], image_dir_name: str) -> list[str]:
+    parts: list[str] = []
+    image_number = 0
+    for image_part in doc.part.related_parts.values():
+        content_type = getattr(image_part, "content_type", "").lower()
+        if not content_type.startswith("image/"):
+            continue
+        extension = _IMAGE_MIME_EXTENSIONS.get(content_type, Path(str(image_part.partname)).suffix.lower() or ".bin")
+        image_path, image_text = _save_image_asset(
+            image_part.blob, extension, image_assets, image_dir_name
+        )
+        if not image_path:
+            continue
+        image_number += 1
+        image_label = f"Embedded DOCX image {image_number}"
+        parts.append(f"![{image_label}]({image_path})")
+        if image_text:
+            parts.append(f"OCR text: {image_text}")
+        elif image_text is None:
+            parts.append("OCR text unavailable; inspect the linked image.")
+        else:
+            parts.append("No text recognized by OCR; inspect the linked image.")
+    return parts
 
 
 def _find_paragraph(doc, element):
@@ -423,20 +464,39 @@ def _convert_excel(path: Path, progress_cb: Callable[[str], None] | None = None)
 
     if ext == ".xlsx":
         openpyxl = _require("openpyxl")
-        wb = openpyxl.load_workbook(str(path), data_only=True)
-        sheet_names = wb.sheetnames
-        for sheet_name in sheet_names:
-            if progress_cb:
-                progress_cb(f"Converting sheet '{sheet_name}'…")
-            ws = wb[sheet_name]
-            rows = list(ws.iter_rows(values_only=True))
-            if not rows:
-                continue
-            parts.append(f"## {sheet_name}\n")
-            parts.append(_rows_to_md(rows))
+        formula_wb = openpyxl.load_workbook(str(path), data_only=False)
+        value_wb = openpyxl.load_workbook(str(path), data_only=True)
+        try:
+            for sheet_name in formula_wb.sheetnames:
+                if progress_cb:
+                    progress_cb(f"Converting sheet '{sheet_name}'…")
+                formula_sheet = formula_wb[sheet_name]
+                value_sheet = value_wb[sheet_name]
+                rows = []
+                for row_index in range(1, formula_sheet.max_row + 1):
+                    row = []
+                    for column_index in range(1, formula_sheet.max_column + 1):
+                        formula_cell = formula_sheet.cell(row_index, column_index)
+                        value = value_sheet.cell(row_index, column_index).value
+                        if formula_cell.data_type == "f":
+                            formula = str(formula_cell.value)
+                            value = (
+                                f"{value} [formula: {formula}]"
+                                if value is not None
+                                else f"{formula} [cached value unavailable]"
+                            )
+                        row.append(value)
+                    rows.append(row)
+                if rows:
+                    parts.append(f"## {sheet_name}\n")
+                    parts.append(_rows_to_md(rows))
+        finally:
+            formula_wb.close()
+            value_wb.close()
     else:
         xlrd = _require("xlrd")
         wb = xlrd.open_workbook(str(path))
+        parts.append("> Legacy XLS conversion preserves stored cell values; formula expressions are unavailable.")
         for sheet in wb.sheets():
             if progress_cb:
                 progress_cb(f"Converting sheet '{sheet.name}'…")
@@ -480,7 +540,12 @@ def _convert_csv(path: Path, progress_cb: Callable[[str], None] | None = None) -
 # PowerPoint conversion (.pptx)
 # ---------------------------------------------------------------------------
 
-def _convert_pptx(path: Path, progress_cb: Callable[[str], None] | None = None) -> str:
+def _convert_pptx(
+    path: Path,
+    progress_cb: Callable[[str], None] | None = None,
+    image_assets: dict[str, bytes] | None = None,
+    image_dir_name: str | None = None,
+) -> str:
     pptx = _require("python-pptx", "pptx")
     Presentation = pptx.Presentation
 
@@ -495,16 +560,32 @@ def _convert_pptx(path: Path, progress_cb: Callable[[str], None] | None = None) 
         title_text = ""
 
         for shape in slide.shapes:
+            if getattr(shape, "has_chart", False):
+                chart_markdown = _pptx_chart_to_md(shape.chart)
+                if chart_markdown:
+                    slide_parts.append(chart_markdown)
+                continue
+            if shape.shape_type == 13:
+                image = shape.image
+                image_path, image_text = _save_image_asset(
+                    image.blob, f".{image.ext}", image_assets, image_dir_name
+                )
+                if image_path:
+                    slide_parts.append(f"![Image on slide {i + 1}]({image_path})")
+                if image_text:
+                    slide_parts.append(f"OCR text: {image_text}")
+                elif image_path:
+                    note = "OCR text unavailable" if image_text is None else "No text recognized by OCR"
+                    slide_parts.append(f"{note}; inspect the linked image.")
+                continue
             if not shape.has_text_frame:
                 continue
             text = shape.text_frame.text.strip()
             if not text:
                 continue
-            if shape.shape_type == 13:  # Picture
-                continue
             if hasattr(shape, "placeholder_format") and shape.placeholder_format is not None:
                 ph_idx = shape.placeholder_format.idx
-                if ph_idx == 0:  # Title placeholder
+                if ph_idx == 0:
                     title_text = text
                     continue
             slide_parts.append(text)
@@ -518,6 +599,38 @@ def _convert_pptx(path: Path, progress_cb: Callable[[str], None] | None = None) 
         parts.append("")
 
     return "\n".join(parts)
+
+
+def _pptx_chart_to_md(chart) -> str:
+    try:
+        series = list(chart.series)
+        if not series:
+            return ""
+        series_values = [
+            [int(value) if isinstance(value, float) and value.is_integer() else value for value in item.values]
+            for item in series
+        ]
+        first_series = series[0]
+        if hasattr(first_series, "x_values"):
+            categories = [str(value) for value in first_series.x_values]
+            category_header = "X"
+        else:
+            categories = [str(category.label) for category in chart.plots[0].categories]
+            category_header = "Category"
+        row_count = max([len(categories), *(len(values) for values in series_values)])
+        headers = [category_header] + [item.name or f"Series {i + 1}" for i, item in enumerate(series)]
+        rows = [headers]
+        for row_index in range(row_count):
+            category = categories[row_index] if row_index < len(categories) else str(row_index + 1)
+            rows.append([
+                category,
+                *[values[row_index] if row_index < len(values) else "" for values in series_values],
+            ])
+        title = chart.chart_title.text_frame.text.strip() if chart.has_title else ""
+        heading = f"### Chart: {title}" if title else "### Chart data"
+        return f"{heading}\n\n{_rows_to_md(rows)}"
+    except Exception:
+        return "### Chart data unavailable"
 
 
 # ---------------------------------------------------------------------------
@@ -536,6 +649,7 @@ _IMAGE_MIME_EXTENSIONS = {
     "image/avif": ".avif",
     "image/x-icon": ".ico",
 }
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".svg", ".avif", ".ico"}
 
 
 def _decode_base64_image(src: str) -> tuple[str, bytes] | None:
@@ -560,6 +674,153 @@ def _image_asset_dir_name(out_path: Path) -> str:
     return f"{stem[:80] or 'document'}_images"
 
 
+@lru_cache(maxsize=1)
+def _surya_recognition_predictor():
+    from surya.inference import SuryaInferenceManager
+    from surya.recognition import RecognitionPredictor
+
+    return RecognitionPredictor(SuryaInferenceManager())
+
+
+_SURYA_INFERENCE_LOCK = threading.Lock()
+_OCR_WORKER_COUNT = 4
+_OCR_EXECUTOR = ThreadPoolExecutor(max_workers=_OCR_WORKER_COUNT)
+_OCR_WORKER_SLOTS = threading.BoundedSemaphore(_OCR_WORKER_COUNT)
+_OCR_TEXT_CACHE_LIMIT = 128
+_OCR_TEXT_CACHE: dict[bytes, str | None] = {}
+_OCR_CACHE_LOCK = threading.Lock()
+
+
+class ImageAssetCollection(dict[str, bytes]):
+    def __init__(self):
+        super().__init__()
+        self.ocr_jobs = {}
+        self.asset_ocr_tokens: dict[str, str] = {}
+        self._ocr_job_number = 0
+
+    def schedule_ocr(self, image_data: bytes) -> str:
+        token = f"__DOC2MD_OCR_{self._ocr_job_number:05d}__"
+        self._ocr_job_number += 1
+        _OCR_WORKER_SLOTS.acquire()
+        try:
+            future = _OCR_EXECUTOR.submit(_ocr_image_bytes, image_data)
+        except Exception:
+            _OCR_WORKER_SLOTS.release()
+            raise
+        future.add_done_callback(lambda _: _OCR_WORKER_SLOTS.release())
+        self.ocr_jobs[token] = future
+        return token
+
+
+def _resolve_image_ocr(
+    markdown: str,
+    source_text: str | None,
+    image_assets: ImageAssetCollection | None,
+    extension: str,
+) -> tuple[str, str | None]:
+    if image_assets is None:
+        return markdown, source_text
+
+    source_text_complete = source_text is not None
+    for token, future in image_assets.ocr_jobs.items():
+        try:
+            image_text = future.result()
+        except Exception:
+            image_text = None
+        if image_text:
+            replacement = image_text
+        elif image_text is None:
+            replacement = "[OCR text unavailable; inspect the linked image]"
+            source_text_complete = False
+        else:
+            replacement = "[No text recognized by OCR; inspect the linked image]"
+            source_text_complete = False
+        markdown = markdown.replace(token, replacement)
+        if source_text is not None:
+            source_text = source_text.replace(token, image_text or "")
+
+    if extension == ".pdf" and not source_text_complete:
+        source_text = None
+    return markdown, source_text
+
+
+def _ocr_image_bytes(image_data: bytes) -> str | None:
+    digest = hashlib.sha256(image_data).digest()
+    with _OCR_CACHE_LOCK:
+        if digest in _OCR_TEXT_CACHE:
+            return _OCR_TEXT_CACHE[digest]
+
+    text = _recognize_image_bytes(image_data)
+    with _OCR_CACHE_LOCK:
+        if len(_OCR_TEXT_CACHE) >= _OCR_TEXT_CACHE_LIMIT:
+            _OCR_TEXT_CACHE.pop(next(iter(_OCR_TEXT_CACHE)))
+        _OCR_TEXT_CACHE[digest] = text
+    return text
+
+
+def _recognize_image_bytes(image_data: bytes) -> str | None:
+    try:
+        Image = _require("Pillow", "PIL.Image")
+        with Image.open(BytesIO(image_data)) as image:
+            if image.width < 64 or image.height < 32:
+                return ""
+            try:
+                with _SURYA_INFERENCE_LOCK:
+                    predictions = _surya_recognition_predictor()([image])
+                text = "\n".join(
+                    block.text
+                    for prediction in predictions
+                    for block in prediction.blocks
+                    if hasattr(block, "text")
+                ).strip()
+                if text:
+                    return text
+            except Exception:
+                pass
+            try:
+                pytesseract = _require("pytesseract")
+                return pytesseract.image_to_string(image, timeout=15).strip()
+            except Exception:
+                return None
+    except Exception:
+        return None
+
+
+def _save_image_asset(
+    image_data: bytes,
+    extension: str,
+    image_assets: dict[str, bytes] | None,
+    image_dir_name: str | None,
+) -> tuple[str | None, str | None]:
+    extension = extension.lower()
+    if not extension.startswith("."):
+        extension = f".{extension}"
+    if extension not in _IMAGE_EXTENSIONS:
+        try:
+            Image = _require("Pillow", "PIL.Image")
+            with Image.open(BytesIO(image_data)) as image:
+                converted = BytesIO()
+                image.save(converted, format="PNG")
+                image_data = converted.getvalue()
+            extension = ".png"
+        except Exception:
+            extension = ".bin"
+    if image_assets is None or image_dir_name is None:
+        return None, _ocr_image_bytes(image_data)
+    for filename, existing_data in image_assets.items():
+        if existing_data == image_data:
+            if isinstance(image_assets, ImageAssetCollection):
+                return f"{image_dir_name}/{filename}", image_assets.asset_ocr_tokens[filename]
+            return f"{image_dir_name}/{filename}", _ocr_image_bytes(image_data)
+    filename = f"image_{len(image_assets) + 1:03d}{extension}"
+    image_assets[filename] = image_data
+    if isinstance(image_assets, ImageAssetCollection):
+        image_text = image_assets.schedule_ocr(image_data)
+        image_assets.asset_ocr_tokens[filename] = image_text
+        return f"{image_dir_name}/{filename}", image_text
+    return f"{image_dir_name}/{filename}", _ocr_image_bytes(image_data)
+
+
 def _markdownify_html(
     html: str,
     markdownify,
@@ -572,19 +833,26 @@ def _markdownify_html(
             alt = el.attrs.get("alt", "") or ""
             if not isinstance(src, str) or not src.strip().lower().startswith("data:image/"):
                 return super().convert_img(el, text, convert_as_inline)
-            if convert_as_inline and el.parent.name not in self.options["keep_inline_images_in"]:
-                return alt
             decoded = _decode_base64_image(src)
-            if decoded is None or image_assets is None or image_dir_name is None:
+            if decoded is None:
                 return alt
             extension, image_data = decoded
-            filename = f"image_{len(image_assets) + 1:03d}{extension}"
-            image_assets[filename] = image_data
-            el.attrs["src"] = f"{image_dir_name}/{filename}"
+            relative_path, image_text = _save_image_asset(
+                image_data, extension, image_assets, image_dir_name
+            )
+            if relative_path is None:
+                return alt
+            el.attrs["src"] = relative_path
             try:
-                return super().convert_img(el, text, convert_as_inline)
+                converted = super().convert_img(el, text, False)
             finally:
                 el.attrs["src"] = src
+            if image_text:
+                converted += f"\n\nOCR text: {image_text}"
+            else:
+                note = "OCR text unavailable" if image_text is None else "No text recognized by OCR"
+                converted += f"\n\n{note}; inspect the linked image."
+            return converted
 
     return _ImageAssetMarkdownConverter(heading_style="ATX").convert(html).strip()
 
@@ -739,51 +1007,38 @@ except ImportError:
 TIKTOKEN_AVAILABLE: bool = _enc is not None
 
 
-def token_stats(src_text: str, out: Path, src: Path | None = None) -> dict:
+def token_stats(src_text: str | None, out: Path, src: Path | None = None) -> dict:
     """
-    Return token counts for the source document and the output markdown.
-
-    Always computes both tiktoken (cl100k_base) and fallback (file bytes÷4
-    vs chars÷4) numbers so the UI can toggle between them.
+    Return exact token counts when extracted source text is available, plus approximate estimates.
 
     Parameters
     ----------
-    src_text : the plain text extracted from the source document
+    src_text : extracted source text, or None when no comparable baseline is available
     out      : path to the generated .md file
-    src      : path to the original source file (used for fallback src side)
-
-    Returns a dict with keys:
-      tiktoken_available        bool
-      tiktoken_src, tiktoken_out, tiktoken_pct   (None if unavailable)
-      fallback_src, fallback_out, fallback_pct
-      src_tokens, out_tokens, savings_pct, method  (active values — tiktoken
-                                                    preferred, fallback used
-                                                    when tiktoken unavailable)
+    src      : path to the original source file (used for the file-size estimate)
     """
     out_text = out.read_text(encoding="utf-8", errors="replace")
 
-    # --- tiktoken numbers ---
     if _enc is not None:
-        tiktoken_src = _count_tokens(src_text)
+        tiktoken_src = _count_tokens(src_text) if src_text is not None else None
         tiktoken_out = _count_tokens(out_text)
         tiktoken_pct = round((1 - tiktoken_out / tiktoken_src) * 100) if tiktoken_src else None
     else:
         tiktoken_src = tiktoken_out = tiktoken_pct = None
 
-    # --- fallback numbers ---
-    fallback_src = (src.stat().st_size // 4) if src is not None else (len(src_text) // 4)
+    fallback_src = (src.stat().st_size // 4) if src is not None else (len(src_text) // 4 if src_text is not None else None)
     fallback_out = len(out_text) // 4
     fallback_pct = round((1 - fallback_out / fallback_src) * 100) if fallback_src else None
-    fallback_method = "file bytes÷4" if src is not None else "chars÷4"
+    fallback_method = "file bytes÷4" if src is not None else "chars÷4" if src_text is not None else "unavailable"
 
-    # Active values: prefer tiktoken
-    if _enc is not None:
+    if _enc is not None and src_text is not None:
         src_tokens, out_tokens, savings_pct, method = tiktoken_src, tiktoken_out, tiktoken_pct, "tiktoken cl100k_base"
     else:
         src_tokens, out_tokens, savings_pct, method = fallback_src, fallback_out, fallback_pct, fallback_method
 
     return {
         "tiktoken_available": _enc is not None,
+        "tiktoken_source_available": _enc is not None and src_text is not None,
         "tiktoken_src": tiktoken_src,
         "tiktoken_out": tiktoken_out,
         "tiktoken_pct": tiktoken_pct,
@@ -807,7 +1062,7 @@ def convert(
     output_dir: str | Path | None = None,
     progress_cb: Callable[[str], None] | None = None,
     return_text: bool = False,
-) -> Path | tuple[Path, str]:
+) -> Path | tuple[Path, str | None]:
     """
     Convert *input_path* to a markdown file.
 
@@ -816,10 +1071,11 @@ def convert(
     input_path : path to the source document
     output_dir : directory for the .md file; defaults to same folder as input
     progress_cb : optional callable(str) for progress messages
+    return_text : include extracted source text when a comparable baseline is available
 
     Returns
     -------
-    Path to the generated .md file
+    Path to the generated .md file, optionally paired with source text
     """
     src = Path(input_path).resolve()
     ext = src.suffix.lower()
@@ -834,7 +1090,10 @@ def convert(
     out_dir = Path(output_dir).resolve() if output_dir else src.parent
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / (src.name + ".md")
-    extract_images = ext in {".html", ".htm", ".epub"}
+    extract_images = ext in {
+        ".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp",
+        ".docx", ".pptx", ".html", ".htm", ".epub",
+    }
     image_dir_name = _image_asset_dir_name(out_path) if extract_images else None
 
     # Avoid silently overwriting existing files
@@ -844,15 +1103,17 @@ def convert(
         image_dir_name = _image_asset_dir_name(out_path) if extract_images else None
         counter += 1
 
-    image_assets: dict[str, bytes] | None = {} if image_dir_name else None
+    image_assets: ImageAssetCollection | None = ImageAssetCollection() if image_dir_name else None
+
+    source_text: str | None = None
 
     # Route to converter
     if ext == ".pdf":
-        md = _convert_pdf(src, progress_cb)
+        md, source_text = _convert_pdf(src, progress_cb, image_assets, image_dir_name)
     elif ext in {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp"}:
-        md = _convert_image(src, progress_cb)
+        md = _convert_image(src, progress_cb, image_assets, image_dir_name)
     elif ext == ".docx":
-        md = _convert_docx(src, progress_cb)
+        md = _convert_docx(src, progress_cb, image_assets, image_dir_name)
     elif ext in {".html", ".htm"}:
         md = _convert_html(src, progress_cb, image_assets, image_dir_name)
     elif ext in {".xlsx", ".xls"}:
@@ -860,7 +1121,7 @@ def convert(
     elif ext == ".csv":
         md = _convert_csv(src, progress_cb)
     elif ext == ".pptx":
-        md = _convert_pptx(src, progress_cb)
+        md = _convert_pptx(src, progress_cb, image_assets, image_dir_name)
     elif ext == ".epub":
         md = _convert_epub(src, progress_cb, image_assets, image_dir_name)
     elif ext == ".rtf":
@@ -874,7 +1135,7 @@ def convert(
     else:
         raise ValueError(f"No converter registered for '{ext}'")
 
-    # Post-process: collapse excessive blank lines
+    md, source_text = _resolve_image_ocr(md, source_text, image_assets, ext)
     md = re.sub(r"\n{3,}", "\n\n", md)
 
     if image_assets and image_dir_name:
@@ -904,5 +1165,5 @@ def convert(
             progress_cb(f"Done — {out_path.name}")
 
     if return_text:
-        return out_path, md
+        return out_path, source_text
     return out_path
